@@ -8,19 +8,27 @@ from pathlib import Path
 import shutil
 from typing import Any, Dict, Optional, List
 
+import pandas as pd
+
 from app.storage import STORE, SessionData, ensure_upload_dir
 from app.parsing.maptrack_csv import parse_session, list_task_ids, ParsedSession
+from app.analysis.metrics import (
+    compute_session_metrics,
+    compute_all_task_metrics,
+    SOC_DEMO_KEYS,
+)
 
 
 app = FastAPI(title="MapTrack Analytics (MVP)")
 
-
-# =========================
-# Static UI
-# =========================
-
+# --- Robust absolute paths (prevents slow/buggy relative FS issues) ---
 BASE_DIR = Path(__file__).resolve().parents[1]
 WEB_DIR = BASE_DIR / "web"
+
+# Static UI
+BASE_DIR = Path(__file__).resolve().parents[1]
+WEB_DIR = BASE_DIR / "web"
+UPLOAD_DIR = BASE_DIR / "data" / "uploads"
 
 app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
 
@@ -31,51 +39,26 @@ def index():
 
 
 # =========================
-# Minimal metrics (temporary)
-# - until we rewrite app/analysis/metrics.py
+# Helpers
 # =========================
 
-def _basic_session_stats(session: ParsedSession) -> Dict[str, Any]:
+def _read_soc_demo_row(csv_path: Path) -> Dict[str, Any]:
     """
-    Základní metriky session z ParsedSession (bez pandas).
-    Později to přesuneme do app/analysis/metrics.py.
+    Read just first row + relevant columns for soc-demo.
+    Fast and robust even for big CSVs.
     """
-    events = session.events
-    out: Dict[str, Any] = {}
+    cols = [c for c in SOC_DEMO_KEYS]  # may not exist in file
+    try:
+        df0 = pd.read_csv(csv_path, nrows=1)
+    except Exception:
+        return {}
 
-    out["events_total"] = int(len(events))
-
-    if events:
-        ts = [e.timestamp_ms for e in events if isinstance(e.timestamp_ms, int)]
-        if ts:
-            out["time_min_ms"] = int(min(ts))
-            out["time_max_ms"] = int(max(ts))
-            out["duration_ms"] = int(max(ts) - min(ts))
-        else:
-            out["time_min_ms"] = None
-            out["time_max_ms"] = None
-            out["duration_ms"] = None
-    else:
-        out["time_min_ms"] = None
-        out["time_max_ms"] = None
-        out["duration_ms"] = None
-
-    # counts of event_name
-    counts: Dict[str, int] = {}
-    for e in events:
-        k = e.event_name or ""
-        counts[k] = counts.get(k, 0) + 1
-    out["event_counts"] = counts
-
-    out["movestart_count"] = int(counts.get("movestart", 0))
-    out["moveend_count"] = int(counts.get("moveend", 0))
-    out["movement_pairs_hint"] = int(min(out["movestart_count"], out["moveend_count"]))
-
-    # tasks
-    tasks = list_task_ids(session)
-    out["tasks"] = tasks
-    out["tasks_count"] = int(len(tasks))
-
+    row = df0.iloc[0].to_dict() if len(df0) else {}
+    # keep only soc-demo keys if present
+    out = {}
+    for k in SOC_DEMO_KEYS:
+        if k in row:
+            out[k] = row.get(k)
     return out
 
 
@@ -88,8 +71,8 @@ async def upload_csv(file: UploadFile = File(...)):
     if not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="Nahraj prosím CSV soubor.")
 
-    upload_dir = ensure_upload_dir()
-    dst = upload_dir / file.filename
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    dst = UPLOAD_DIR / file.filename
 
     # save file to disk
     try:
@@ -102,26 +85,34 @@ async def upload_csv(file: UploadFile = File(...)):
     try:
         parsed_session = parse_session(str(dst), file.filename)
 
-        # tasks přímo z parseru (spolehlivé)
+        # tasks list (stable order)
         tasks: List[str] = list_task_ids(parsed_session)
         primary_task: Optional[str] = tasks[0] if tasks else None
 
-        # stats pak spočítej a tasks do nich vlož jen jako kopii
-        stats = _basic_session_stats(parsed_session)
-        stats["tasks"] = tasks
-        stats["tasks_count"] = len(tasks)
+        # soc-demo from first row (optional columns)
+        soc_row = _read_soc_demo_row(dst)
+
+        # session metrics (+ soc-demo inside)
+        session_metrics = compute_session_metrics(session=parsed_session, raw_row=soc_row)
+
+        # task metrics (duration + event_count per task)
+        task_metrics = compute_all_task_metrics(parsed_session)
+
+        # store all stats in one structure
+        stats: Dict[str, Any] = {
+            "session": session_metrics,
+            "tasks": task_metrics,
+        }
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Zpracování CSV selhalo: {e}")
 
     # store metadata (MVP: in-memory)
-    # NOTE: SessionData ve tvém storage.py může ještě nemít "tasks".
-    # Proto je ukládáme do stats + do API response. Až upravíme storage.py, přidáme to i do dataclass.
     session_meta = SessionData(
         session_id=parsed_session.session_id,
         file_path=str(dst),
         user_id=parsed_session.user_id,
-        task=primary_task,
+        task=primary_task,   # legacy (keep for now)
         stats=stats,
     )
     STORE.upsert(session_meta)
@@ -129,9 +120,9 @@ async def upload_csv(file: UploadFile = File(...)):
     return {
         "session_id": parsed_session.session_id,
         "user_id": parsed_session.user_id,
-        "task": primary_task,       # legacy
-        "tasks": tasks,             # new
-        "stats": stats,
+        "task": primary_task,  # legacy
+        "tasks": tasks,        # list of tasks for UI
+        "stats": stats,        # { session:..., tasks:{...} }
     }
 
 
@@ -141,19 +132,20 @@ def list_sessions():
 
     out = []
     for s in sessions.values():
-        # ✅ robustně: tasks držíme v s.stats["tasks"], ale hlídáme typ
-        tasks: List[str] = []
-        if isinstance(s.stats, dict):
-            t = s.stats.get("tasks")
-            if isinstance(t, list):
-                tasks = [str(x) for x in t if str(x).strip()]
+        stats = s.stats if isinstance(s.stats, dict) else {}
+        session_stats = stats.get("session", {}) if isinstance(stats.get("session"), dict) else {}
+
+        # tasks list: compute from task_metrics keys (keeps consistent even if tasks list not stored separately)
+        task_metrics = stats.get("tasks", {}) if isinstance(stats.get("tasks"), dict) else {}
+        tasks = list(task_metrics.keys())
 
         out.append({
             "session_id": s.session_id,
             "user_id": s.user_id,
-            "task": s.task,   # legacy (ponecháme zatím)
-            "tasks": tasks,   # ✅ new
-            "stats": s.stats,
+            "task": s.task,      # legacy
+            "tasks": tasks,      # new
+            "stats": stats,      # keep full stats for UI
+            "session_stats": session_stats,  # convenience (optional)
         })
 
     return {"sessions": out}
@@ -165,17 +157,36 @@ def get_session(session_id: str):
     if not s:
         raise HTTPException(status_code=404, detail="Session nenalezena.")
 
-    tasks: List[str] = []
-    if isinstance(s.stats, dict):
-        t = s.stats.get("tasks")
-        if isinstance(t, list):
-            tasks = [str(x) for x in t if str(x).strip()]
+    stats = s.stats if isinstance(s.stats, dict) else {}
+    task_metrics = stats.get("tasks", {}) if isinstance(stats.get("tasks"), dict) else {}
+    tasks = list(task_metrics.keys())
 
     return {
         "session_id": s.session_id,
         "user_id": s.user_id,
-        "task": s.task,   # legacy
-        "tasks": tasks,   # ✅ new
-        "stats": s.stats,
+        "task": s.task,      # legacy
+        "tasks": tasks,      # new
+        "stats": stats,
         "file_path": s.file_path,
     }
+
+
+@app.get("/api/sessions/{session_id}/tasks/{task_id}/metrics")
+def get_task_metrics(session_id: str, task_id: str):
+    """
+    Used by frontend pop-up. Returns:
+    - duration_ms for task
+    - events_total for task
+    """
+    s = STORE.get(session_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="Session nenalezena.")
+
+    stats = s.stats if isinstance(s.stats, dict) else {}
+    task_metrics = stats.get("tasks", {}) if isinstance(stats.get("tasks"), dict) else {}
+
+    m = task_metrics.get(task_id)
+    if not isinstance(m, dict):
+        raise HTTPException(status_code=404, detail="Task nenalezen v session.")
+
+    return m
