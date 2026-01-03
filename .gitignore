@@ -1,0 +1,11 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Data
+data/uploads/
+*.csv
+
+# OS
+.DS_Store

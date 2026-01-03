@@ -1,103 +1,248 @@
 <!doctype html>
 <html lang="cs">
-  
+
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>MapTrack Analytics – MVP</title>
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
-  
+
 <body>
   <div class="app">
-    <aside class="sidebar">
-      <div class="brand">MapTrack Analytics</div>
 
-      <nav class="nav">
-        <button class="nav-btn active" data-view="dashboard">Nástěnka</button>
-        <button class="nav-btn" data-view="individual">Individuální</button>
-        <button class="nav-btn" data-view="group">Skupinový</button>
-      </nav>
+    <!-- TOP BAR -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <div class="brand">
+          <span class="brand-dot"></span>
+          MapTrack Analytics
+        </div>
 
-      <div class="upload">
-        <label class="upload-label">
-          <span>Nahrát CSV</span>
-          <input id="csvInput" type="file" accept=".csv" />
-        </label>
-        <div id="uploadStatus" class="muted"></div>
+        <div class="breadcrumb" aria-label="Breadcrumb">
+          <!-- JS si sem později může psát stav: TEST > session > task -->
+          <span class="crumb" id="crumb-root">Testy</span>
+          <span class="crumb-sep">›</span>
+          <span class="crumb muted" id="crumb-test">—</span>
+          <span class="crumb-sep">›</span>
+          <span class="crumb muted" id="crumb-session">—</span>
+        </div>
       </div>
-    </aside>
 
+      <div class="topbar-right">
+        <label class="upload-chip" title="Nahraj CSV (session)">
+          <input id="csvInput" type="file" accept=".csv" />
+          <span>+ Nahrát CSV (session)</span>
+        </label>
+      </div>
+    </header>
+
+    <!-- MAIN -->
     <main class="main">
-      <!-- NÁSTĚNKA -->
-      <section class="view" id="view-dashboard">
-        <h1>Nástěnka</h1>
 
-        <div class="grid-2">
-          <div class="card">
-            <h2>Výběr úlohy + agregace za test</h2>
-            <div class="muted">MVP: zatím zobrazujeme nahrané sessions + základní metriky.</div>
-            <div id="sessionsList" class="list"></div>
-          </div>
-
-          <div class="card">
-            <h2>Základní metriky</h2>
-            <div id="basicMetrics" class="kv"></div>
+      <!-- PAGE 1: DASHBOARD = TESTY -->
+      <section class="page" id="view-dashboard">
+        <div class="page-head">
+          <div>
+            <h1>Nástěnka</h1>
+            <p class="muted">
+              Nejprve vyber uživatelský test. Nyní existuje jen výchozí <b>TEST</b>.
+              Později se sem budou načítat testy z databáze.
+            </p>
           </div>
         </div>
 
-        <div class="card">
-          <h2>Nastavení</h2>
-          <div class="muted">Později: správné odpovědi, parametry agregací, filtry…</div>
+        <div class="layout-2">
+          <!-- LEFT: TEST LIST -->
+          <section class="card">
+            <div class="card-head">
+              <h2>Uživatelské testy</h2>
+              <div class="muted small">Kliknutím vybereš test. Tlačítkem pokračuješ na seznam sessions.</div>
+            </div>
+
+            <div class="list" id="testsList">
+              <!-- MVP: default TEST (JS může později přegenerovat) -->
+              <div class="list-item is-selected" data-test="TEST">
+                <div class="row">
+                  <div class="title">TEST</div>
+                  <span class="pill">default</span>
+                </div>
+                <div class="muted small">Výchozí test – zatím lokální práce se sessions (CSV).</div>
+                <div class="row actions">
+                  <button class="btn" id="openTestBtn" type="button">Otevřít test</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="hint">
+              <div class="hint-title">Poznámka</div>
+              <div class="muted small">
+                Nahrané CSV = jedna session (jeden uživatel). Sessions se po nahrání zobrazí v „Otevřít test“ kroku.
+              </div>
+              <div id="uploadStatus" class="muted small" style="margin-top:8px;"></div>
+            </div>
+          </section>
+
+          <!-- RIGHT: AGG METRICS (TASK-LEVEL AGG FOR THE TEST) -->
+          <section class="card">
+            <div class="card-head">
+              <h2>Základní metriky</h2>
+              <div class="muted small">
+                Na výchozí nástěnce: agregované metriky za jednotlivé úlohy v rámci vybraného testu.
+              </div>
+            </div>
+
+            <!-- JS sem později dá agregace za task -->
+            <div class="metrics" id="testAggMetrics">
+              <div class="empty">
+                <div class="empty-title">Zatím nejsou data</div>
+                <div class="muted small">
+                  Nahraj jednu nebo více sessions (CSV). Pak se zde zobrazí agregace za úlohy v testu.
+                </div>
+              </div>
+            </div>
+
+            <div class="card-foot">
+              <div class="muted small">Příklady metrik: počet respondentů, průměrný čas, % správnosti.</div>
+            </div>
+          </section>
         </div>
       </section>
 
-      <!-- INDIVIDUÁLNÍ -->
-      <section class="view hidden" id="view-individual">
-        <h1>Individuální pohled</h1>
-
-        <div class="grid-2">
-          <div class="card">
-            <h2>Seznam relací / respondentů</h2>
-            <div class="muted">MVP: kliknutím vybereš session a zobrazí se její detail.</div>
-            <div id="individualSessions" class="list"></div>
+      <!-- PAGE 2: SESSIONS LIST FOR SELECTED TEST -->
+      <section class="page hidden" id="view-individual">
+        <div class="page-head">
+          <div>
+            <h1>Sessions</h1>
+            <p class="muted">
+              Vyber session (záznam jednoho uživatele). Vpravo se zobrazí metriky a tlačítko pro pokračování na úlohy.
+            </p>
           </div>
 
-          <div class="card">
-            <h2>Detail relace</h2>
-            <div id="sessionDetail" class="muted">Vyber session vlevo…</div>
-            <div class="placeholder-row">
+          <div class="page-actions">
+            <button class="btn btn-ghost" id="backToTestsBtn" type="button">← Zpět na testy</button>
+          </div>
+        </div>
+
+        <div class="layout-2">
+          <!-- LEFT: SESSIONS -->
+          <section class="card">
+            <div class="card-head">
+              <h2>Seznam sessions v testu</h2>
+              <div class="muted small">Kliknutí = výběr session (nic dalšího). Tlačítko = pokračování.</div>
+            </div>
+
+            <div class="list" id="sessionsList">
+              <div class="empty">
+                <div class="empty-title">Žádná session</div>
+                <div class="muted small">Nahraj CSV na nástěnce, potom se sem sessions doplní.</div>
+              </div>
+            </div>
+          </section>
+
+          <!-- RIGHT: SESSION METRICS -->
+          <section class="card">
+            <div class="card-head">
+              <h2>Metriky session</h2>
+              <div class="muted small">Zde se zobrazí metriky vybrané session.</div>
+            </div>
+
+            <div class="metrics" id="sessionMetrics">
+              <div class="empty">
+                <div class="empty-title">Vyber session</div>
+                <div class="muted small">Klikni vlevo na session, aby se zde zobrazily její metriky.</div>
+              </div>
+            </div>
+
+            <div class="card-foot foot-split">
+              <div class="muted small">Pokračuj na seznam úloh v této session.</div>
+              <button class="btn" id="openSessionBtn" type="button" disabled>Otevřít session</button>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <!-- PAGE 3: TASKS LIST FOR SELECTED SESSION -->
+      <section class="page hidden" id="view-group">
+        <div class="page-head">
+          <div>
+            <h1>Úlohy v session</h1>
+            <p class="muted">
+              V této session je více úloh (sloupec <b>task</b>). Klikni na úlohu a zobraz metriky v pop-up okně.
+            </p>
+          </div>
+
+          <div class="page-actions">
+            <button class="btn btn-ghost" id="backToSessionsBtn" type="button">← Zpět na sessions</button>
+          </div>
+        </div>
+
+        <div class="layout-2">
+          <!-- LEFT: TASKS -->
+          <section class="card">
+            <div class="card-head">
+              <h2>Seznam úloh</h2>
+              <div class="muted small">Kliknutí na úlohu otevře metriky (pop-up).</div>
+            </div>
+
+            <div class="list" id="tasksList">
+              <div class="empty">
+                <div class="empty-title">Vyber nejdřív session</div>
+                <div class="muted small">Úlohy se načtou až po výběru session v předchozím kroku.</div>
+              </div>
+            </div>
+          </section>
+
+          <!-- RIGHT: PLACEHOLDERS FOR FUTURE -->
+          <section class="card">
+            <div class="card-head">
+              <h2>Detail (později)</h2>
+              <div class="muted small">Sem později přijde individuální pohled: mapa, timeline, soc-dem info…</div>
+            </div>
+
+            <div class="stack">
               <div class="placeholder-box">Mapa (trajektorie + viewpointy)</div>
               <div class="placeholder-box">Časová osa eventů</div>
               <div class="placeholder-box">Soc-dem info</div>
             </div>
+          </section>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- TASK METRICS MODAL (pop-up) -->
+    <div class="modal hidden" id="taskMetricsModal" role="dialog" aria-modal="true" aria-labelledby="taskModalTitle">
+      <div class="modal-backdrop"></div>
+
+      <div class="modal-card">
+        <div class="modal-head">
+          <div>
+            <div class="modal-title" id="taskModalTitle">Metriky úlohy</div>
+            <div class="muted small" id="taskModalSubtitle">—</div>
+          </div>
+          <button class="icon-btn" id="closeTaskModalBtn" type="button" aria-label="Zavřít">✕</button>
+        </div>
+
+        <div class="modal-body">
+          <!-- JS sem vloží metriky konkrétní úlohy -->
+          <div class="metrics" id="taskModalMetrics">
+            <div class="empty">
+              <div class="empty-title">Zatím nic</div>
+              <div class="muted small">Po kliknutí na úlohu se zde zobrazí její metriky.</div>
+            </div>
           </div>
         </div>
-      </section>
 
-      <!-- SKUPINOVÝ -->
-      <section class="view hidden" id="view-group">
-        <h1>Skupinový pohled</h1>
-
-        <div class="card">
-          <h2>1) Volba skupiny + filtry</h2>
-          <div class="muted">Později: filtry podle age/gender/education…</div>
+        <div class="modal-foot">
+          <button class="btn btn-ghost" id="closeTaskModalBtn2" type="button">Zavřít</button>
         </div>
+      </div>
+    </div>
 
-        <div class="card">
-          <h2>2) Vizualizace / výsledky</h2>
-          <ul class="muted">
-            <li>heatmapa skupiny</li>
-            <li>agregované trajektorie</li>
-            <li>statistiky + správnost odpovědí</li>
-            <li>srovnání skupin</li>
-            <li>export</li>
-          </ul>
-        </div>
-      </section>
-    </main>
   </div>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=2"></script>
 </body>
+
 </html>
