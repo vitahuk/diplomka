@@ -21,7 +21,6 @@ app = FastAPI(title="MapTrack Analytics (MVP)")
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 WEB_DIR = BASE_DIR / "web"
-UPLOAD_DIR = BASE_DIR / "data" / "uploads"
 
 app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
 
