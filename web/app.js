@@ -224,6 +224,7 @@ function renderSessionsList() {
         </div>
       </div>
     `;
+
   }).join("");
 
   $$("#sessionsList .list-item").forEach(item => {
