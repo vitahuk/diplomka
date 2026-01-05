@@ -69,6 +69,7 @@
                 </div>
                 <div class="muted small">Výchozí test – zatím lokální práce se sessions (CSV).</div>
                 <div class="row actions">
+                  <button class="btn" id="openSettingsBtn" type="button">Nastavení</button>
                   <button class="btn" id="openTestBtn" type="button">Otevřít test</button>
                 </div>
               </div>
@@ -83,30 +84,61 @@
             </div>
           </section>
 
-          <!-- RIGHT: AGG METRICS (TASK-LEVEL AGG FOR THE TEST) -->
+          <!-- Basic metrics -->
           <section class="card">
             <div class="card-head">
               <h2>Základní metriky</h2>
               <div class="muted small">
-                Na výchozí nástěnce: agregované metriky za jednotlivé úlohy v rámci vybraného testu.
+                Na výchozí nástěnce: pouze počet sessions v rámci vybraného testu.
               </div>
             </div>
 
-            <!-- JS sem později dá agregace za task -->
             <div class="metrics" id="testAggMetrics">
               <div class="empty">
                 <div class="empty-title">Zatím nejsou data</div>
                 <div class="muted small">
-                  Nahraj jednu nebo více sessions (CSV). Pak se zde zobrazí agregace za úlohy v testu.
+                  Nahraj jednu nebo více sessions (CSV). Pak se zde zobrazí počet sessions v testu.
                 </div>
               </div>
             </div>
-
-            <div class="card-foot">
-              <div class="muted small">Příklady metrik: počet respondentů, průměrný čas, % správnosti.</div>
-            </div>
           </section>
         </div>
+      </section>
+
+      <!-- PAGE: Settings -->
+      <section class="page hidden" id="view-settings">
+        <div class="page-head">
+          <div>
+            <h1>Nastavení</h1>
+            <p class="muted">
+              Uživatelský test: <b id="settingsTestName">—</b>
+            </p>
+          </div>
+          <div class="page-actions">
+            <button class="btn btn-ghost" id="backFromSettingsBtn" type="button">← Zpět</button>
+          </div>
+        </div>
+
+        <section class="card">
+          <div class="card-head">
+            <h2>Správné odpovědi úloh</h2>
+            <div class="muted small">
+              Ke každé úloze zadej správnou odpověď (integer). Ukládá se automaticky.
+            </div>
+          </div>
+
+          <div class="list" id="settingsTasksList">
+            <div class="empty">
+              <div class="empty-title">Zatím žádné úlohy</div>
+              <div class="muted small">Nahraj aspoň jednu session (CSV), aby se načetly názvy úloh.</div>
+            </div>
+          </div>
+
+          <div class="card-foot foot-split">
+            <div class="muted small" id="settingsStatus">—</div>
+            <button class="btn btn-ghost" id="settingsReloadBtn" type="button">Obnovit</button>
+          </div>
+        </section>
       </section>
 
       <!-- PAGE 2: SESSIONS LIST FOR SELECTED TEST -->
@@ -116,7 +148,7 @@
             <h1>Sessions</h1>
             <p class="muted">
               Vyber session (záznam jednoho uživatele). Vpravo se zobrazí metriky a tlačítko pro pokračování na úlohy.
-            </p> 
+            </p>
           </div>
 
           <div class="page-actions">
@@ -125,6 +157,7 @@
         </div>
 
         <div class="layout-2">
+
           <!-- LEFT: SESSIONS -->
           <section class="card">
             <div class="card-head">
@@ -178,6 +211,7 @@
         </div>
 
         <div class="layout-2">
+
           <!-- LEFT: TASKS -->
           <section class="card">
             <div class="card-head">
@@ -225,6 +259,7 @@
         </div>
 
         <div class="modal-body">
+
           <!-- JS sem vloží metriky konkrétní úlohy -->
           <div class="metrics" id="taskModalMetrics">
             <div class="empty">

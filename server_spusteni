@@ -1,3 +1,4 @@
 POKAŽDÉ:
 source .venv/bin/activate
 python -m uvicorn app.main:app --reload
+python -m uvicorn app.main:app --reload --access-log --log-level debug

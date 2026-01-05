@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi import Body
 
 from pathlib import Path
 import shutil
@@ -11,6 +12,7 @@ from typing import Any, Dict, Optional, List
 import pandas as pd
 
 from app.storage import STORE, SessionData, ensure_upload_dir
+from app.storage import get_test_answers, set_test_answer
 from app.parsing.maptrack_csv import parse_session, list_task_ids, ParsedSession
 from app.analysis.metrics import (
     compute_session_metrics,
@@ -190,3 +192,30 @@ def get_task_metrics(session_id: str, task_id: str):
         raise HTTPException(status_code=404, detail="Task nenalezen v session.")
 
     return m
+
+
+@app.get("/api/tests/{test_id}/answers")
+def api_get_test_answers(test_id: str):
+    return {"test_id": test_id, "answers": get_test_answers(test_id)}
+
+
+@app.put("/api/tests/{test_id}/answers/{task_id}")
+def api_put_test_answer(
+    test_id: str,
+    task_id: str,
+    payload: dict = Body(...),
+):
+    # payload: {"answer": int|null}
+    if "answer" not in payload:
+        raise HTTPException(status_code=400, detail="Missing 'answer' in body.")
+
+    answer = payload["answer"]
+    if answer is None:
+        updated = set_test_answer(test_id, task_id, None)
+        return {"test_id": test_id, "answers": updated}
+
+    if not isinstance(answer, int):
+        raise HTTPException(status_code=400, detail="'answer' must be an integer or null.")
+
+    updated = set_test_answer(test_id, task_id, int(answer))
+    return {"test_id": test_id, "answers": updated}

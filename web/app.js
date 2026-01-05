@@ -7,6 +7,7 @@ function hide(el) { el?.classList.add("hidden"); }
 
 function setPage(pageId) {
   hide($("#view-dashboard"));
+  hide($("#view-settings"));
   hide($("#view-individual"));
   hide($("#view-group"));
   show($(`#view-${pageId}`));
@@ -44,6 +45,9 @@ const state = {
   selectedSession: null,
   selectedTaskId: null,
   sessions: [],
+
+  // answers cache: testId -> { taskId -> int }
+  correctAnswers: {},
 };
 
 // ===== API =====
@@ -71,6 +75,28 @@ async function apiUpload(file) {
 
 async function apiGetTaskMetrics(sessionId, taskId) {
   return apiGet(`/api/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}/metrics`);
+}
+
+// --- NEW: persisted answers per test (backend file in data/) ---
+async function apiGetTestAnswers(testId) {
+  return apiGet(`/api/tests/${encodeURIComponent(testId)}/answers`);
+}
+
+async function apiPutTestAnswer(testId, taskId, answerIntOrNull) {
+  const res = await fetch(
+    `/api/tests/${encodeURIComponent(testId)}/answers/${encodeURIComponent(taskId)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answer: answerIntOrNull }),
+    }
+  );
+  if (!res.ok) {
+    let err = {};
+    try { err = await res.json(); } catch { }
+    throw new Error(err.detail ?? res.statusText);
+  }
+  return res.json();
 }
 
 // ===== Rendering: metrics blocks =====
@@ -151,41 +177,18 @@ function renderTestAggMetrics() {
     el.innerHTML = `
       <div class="empty">
         <div class="empty-title">Zatím nejsou data</div>
-        <div class="muted small">Nahraj jednu nebo více sessions (CSV). Pak se zde zobrazí agregace za úlohy v testu.</div>
+        <div class="muted small">
+          Nahraj jednu nebo více sessions (CSV). Pak se zde zobrazí počet sessions v testu.
+        </div>
       </div>
     `;
     return;
   }
 
-  const agg = computeAggByTask(sessions);
-
-  const cards = agg.map(a => {
-    const rows = {
-      "Sessions obsahujících úlohu": a.sessions_count,
-      "Průměrná délka (fallback)": fmtMs(a.avg_duration_ms),
-      "Průměrný počet eventů (fallback)": a.avg_events?.toFixed?.(0) ?? "—",
-      "% správnosti": "— (později)",
-    };
-
-    const inner = Object.entries(rows).map(([k, v]) => `
-      <div class="metric">
-        <div class="k">${escapeHtml(k)}</div>
-        <div class="v">${escapeHtml(v)}</div>
-      </div>
-    `).join("");
-
-    return `
-      <div class="card" style="padding:12px; border-radius:16px;">
-        <div class="row" style="margin-bottom:8px;">
-          <div class="title">${escapeHtml(a.task)}</div>
-          <span class="pill">agregace</span>
-        </div>
-        <div class="metric-grid">${inner}</div>
-      </div>
-    `;
-  }).join("");
-
-  el.innerHTML = `<div class="stack" style="gap:12px;">${cards}</div>`;
+  renderMetricGrid(
+    { "Počet sessions v testu": sessions.length },
+    el
+  );
 }
 
 // ===== Sessions list page =====
@@ -412,6 +415,130 @@ async function refreshSessions() {
   }
 }
 
+// ===== Settings page =====
+function getAllTasksForSelectedTest() {
+  // MVP: sessions nejsou asociované s testId, takže bereme všechny tasks z nahraných sessions
+  const set = new Set();
+  for (const s of state.sessions) {
+    const taskIds = Array.isArray(s.tasks) && s.tasks.length ? s.tasks : [s.task ?? "unknown"];
+    for (const t of taskIds) set.add(String(t));
+  }
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}
+
+function renderSettingsStatus(text) {
+  const el = $("#settingsStatus");
+  if (el) el.textContent = text ?? "—";
+}
+
+async function loadAnswersForSelectedTest() {
+  const testId = state.selectedTestId ?? "TEST";
+  try {
+    renderSettingsStatus("Načítám uložené odpovědi…");
+    const out = await apiGetTestAnswers(testId);
+    state.correctAnswers[testId] = out.answers ?? {};
+    renderSettingsStatus("Načteno.");
+  } catch (e) {
+    renderSettingsStatus(`Chyba načtení: ${e?.message ?? e}`);
+    state.correctAnswers[testId] = state.correctAnswers[testId] ?? {};
+  }
+}
+
+function getCorrectAnswerLocal(testId, taskId) {
+  return state.correctAnswers?.[testId]?.[taskId];
+}
+
+async function setCorrectAnswerPersisted(testId, taskId, answerIntOrNull) {
+  // optimistic update
+  if (!state.correctAnswers[testId]) state.correctAnswers[testId] = {};
+  if (answerIntOrNull === null) {
+    delete state.correctAnswers[testId][taskId];
+  } else {
+    state.correctAnswers[testId][taskId] = answerIntOrNull;
+  }
+
+  try {
+    renderSettingsStatus("Ukládám…");
+    await apiPutTestAnswer(testId, taskId, answerIntOrNull);
+    renderSettingsStatus("Uloženo.");
+  } catch (e) {
+    renderSettingsStatus(`Chyba uložení: ${e?.message ?? e}`);
+  }
+}
+
+function renderSettingsPage() {
+  const testId = state.selectedTestId ?? "TEST";
+
+  const nameEl = $("#settingsTestName");
+  if (nameEl) nameEl.textContent = testId;
+
+  const listEl = $("#settingsTasksList");
+  if (!listEl) return;
+
+  const tasks = getAllTasksForSelectedTest();
+
+  if (!tasks.length) {
+    listEl.innerHTML = `
+      <div class="empty">
+        <div class="empty-title">Zatím žádné úlohy</div>
+        <div class="muted small">Nahraj aspoň jednu session (CSV), aby se načetly názvy úloh.</div>
+      </div>
+    `;
+    return;
+  }
+
+  listEl.innerHTML = tasks.map((taskId) => {
+    const val = getCorrectAnswerLocal(testId, taskId);
+    const valueAttr = (val === null || val === undefined) ? "" : String(val);
+
+    return `
+      <div class="list-item" data-task="${escapeHtml(taskId)}">
+        <div class="row" style="align-items:center; justify-content:space-between; gap:12px;">
+          <div>
+            <div class="title">${escapeHtml(taskId)}</div>
+            <div class="muted small">Správná odpověď (integer)</div>
+          </div>
+
+          <input
+            type="number"
+            inputmode="numeric"
+            step="1"
+            value="${escapeHtml(valueAttr)}"
+            placeholder="např. 3"
+            style="width:140px;"
+          />
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  // listeners na inputy
+  $$("#settingsTasksList .list-item").forEach((item) => {
+    const taskId = item.dataset.task;
+    const input = item.querySelector("input");
+    if (!input) return;
+
+    input.addEventListener("change", async () => {
+      const raw = input.value;
+
+      if (raw === "") {
+        await setCorrectAnswerPersisted(testId, taskId, null);
+        return;
+      }
+
+      const n = Number(raw);
+      if (!Number.isInteger(n)) {
+        const fixed = Math.trunc(n);
+        input.value = String(fixed);
+        await setCorrectAnswerPersisted(testId, taskId, fixed);
+        return;
+      }
+
+      await setCorrectAnswerPersisted(testId, taskId, n);
+    });
+  });
+}
+
 // ===== Events wiring =====
 function wireNavButtons() {
   $("#openTestBtn")?.addEventListener("click", () => {
@@ -435,6 +562,22 @@ function wireNavButtons() {
     setPage("individual");
     renderSessionsList();
     renderSessionMetrics();
+  });
+
+  $("#openSettingsBtn")?.addEventListener("click", async () => {
+    setPage("settings");
+    await loadAnswersForSelectedTest();
+    renderSettingsPage();
+  });
+
+  $("#backFromSettingsBtn")?.addEventListener("click", () => {
+    setPage("dashboard");
+    selectTest(state.selectedTestId ?? "TEST");
+  });
+
+  $("#settingsReloadBtn")?.addEventListener("click", async () => {
+    await loadAnswersForSelectedTest();
+    renderSettingsPage();
   });
 }
 
@@ -483,6 +626,11 @@ function wireUpload() {
         renderTasksList();
       }
 
+      if (!$("#view-settings")?.classList.contains("hidden")) {
+        // tasks list might change if new CSV introduces new task ids
+        renderSettingsPage();
+      }
+
     } catch (ex) {
       if (statusEl) statusEl.textContent = `Chyba: ${ex?.message ?? ex}`;
     } finally {
@@ -508,6 +656,14 @@ async function init() {
   setPage("dashboard");
   updateBreadcrumbs();
   renderTestAggMetrics();
+
+  // preload cached answers for default test (non-blocking)
+  (async () => {
+    try {
+      const out = await apiGetTestAnswers(state.selectedTestId ?? "TEST");
+      state.correctAnswers[state.selectedTestId] = out.answers ?? {};
+    } catch { /* ignore */ }
+  })();
 }
 
 init();
