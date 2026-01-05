@@ -49,14 +49,12 @@ def _read_soc_demo_row(csv_path: Path) -> Dict[str, Any]:
     Read just first row + relevant columns for soc-demo.
     Fast and robust even for big CSVs.
     """
-    cols = [c for c in SOC_DEMO_KEYS]  # may not exist in file
     try:
         df0 = pd.read_csv(csv_path, nrows=1)
     except Exception:
         return {}
 
     row = df0.iloc[0].to_dict() if len(df0) else {}
-    # keep only soc-demo keys if present
     out = {}
     for k in SOC_DEMO_KEYS:
         if k in row:
@@ -137,7 +135,6 @@ def list_sessions():
         stats = s.stats if isinstance(s.stats, dict) else {}
         session_stats = stats.get("session", {}) if isinstance(stats.get("session"), dict) else {}
 
-        # tasks list: compute from task_metrics keys (keeps consistent even if tasks list not stored separately)
         task_metrics = stats.get("tasks", {}) if isinstance(stats.get("tasks"), dict) else {}
         tasks = list(task_metrics.keys())
 
@@ -146,8 +143,8 @@ def list_sessions():
             "user_id": s.user_id,
             "task": s.task,      # legacy
             "tasks": tasks,      # new
-            "stats": stats,      # keep full stats for UI
-            "session_stats": session_stats,  # convenience (optional)
+            "stats": stats,
+            "session_stats": session_stats,
         })
 
     return {"sessions": out}
@@ -175,11 +172,6 @@ def get_session(session_id: str):
 
 @app.get("/api/sessions/{session_id}/tasks/{task_id}/metrics")
 def get_task_metrics(session_id: str, task_id: str):
-    """
-    Used by frontend pop-up. Returns:
-    - duration_ms for task
-    - events_total for task
-    """
     s = STORE.get(session_id)
     if not s:
         raise HTTPException(status_code=404, detail="Session nenalezena.")
@@ -194,6 +186,52 @@ def get_task_metrics(session_id: str, task_id: str):
     return m
 
 
+# ===== NEW: raw events for timeline =====
+@app.get("/api/sessions/{session_id}/events")
+def get_session_events(session_id: str):
+    s = STORE.get(session_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="Session nenalezena.")
+
+    csv_path = Path(s.file_path)
+    if not csv_path.exists():
+        raise HTTPException(status_code=404, detail="CSV soubor pro session nenalezen.")
+
+    # read only required columns
+    usecols = ["timestamp", "event_name", "event_detail", "task"]
+    try:
+        df = pd.read_csv(csv_path, usecols=lambda c: c in usecols)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Nelze načíst eventy z CSV: {e}")
+
+    # normalize + drop rows without essentials
+    if "timestamp" not in df.columns or "event_name" not in df.columns:
+        raise HTTPException(status_code=400, detail="CSV neobsahuje required sloupce (timestamp, event_name).")
+
+    # keep order as in file
+    out = []
+    for _, row in df.iterrows():
+        ts = row.get("timestamp")
+        name = row.get("event_name")
+        if pd.isna(ts) or pd.isna(name):
+            continue
+        detail = row.get("event_detail") if "event_detail" in df.columns else None
+        task = row.get("task") if "task" in df.columns else None
+
+        out.append({
+            "timestamp": int(ts),
+            "event_name": str(name),
+            "event_detail": None if pd.isna(detail) else str(detail),
+            "task": None if pd.isna(task) else str(task),
+        })
+
+    return {
+        "session_id": s.session_id,
+        "user_id": s.user_id,
+        "events": out,
+    }
+
+
 @app.get("/api/tests/{test_id}/answers")
 def api_get_test_answers(test_id: str):
     return {"test_id": test_id, "answers": get_test_answers(test_id)}
@@ -205,7 +243,6 @@ def api_put_test_answer(
     task_id: str,
     payload: dict = Body(...),
 ):
-    # payload: {"answer": int|null}
     if "answer" not in payload:
         raise HTTPException(status_code=400, detail="Missing 'answer' in body.")
 

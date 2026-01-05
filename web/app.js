@@ -24,6 +24,15 @@ function fmtMs(ms) {
   return `${m} min ${rs} s`;
 }
 
+function fmtSec(sec) {
+  const n = Number(sec);
+  if (!Number.isFinite(n)) return "—";
+  if (n < 60) return `${n.toFixed(1)} s`;
+  const m = Math.floor(n / 60);
+  const rs = Math.round(n % 60);
+  return `${m}:${String(rs).padStart(2, "0")}`;
+}
+
 function safeNum(x) {
   const n = Number(x);
   return Number.isFinite(n) ? n : null;
@@ -38,6 +47,11 @@ function escapeHtml(s) {
     .replaceAll("'", "&#039;");
 }
 
+function isCoordinateLike(s) {
+  if (!s) return false;
+  return /^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/.test(String(s).trim());
+}
+
 // ===== App State =====
 const state = {
   selectedTestId: "TEST",
@@ -45,9 +59,6 @@ const state = {
   selectedSession: null,
   selectedTaskId: null,
   sessions: [],
-
-  // answers cache: testId -> { taskId -> int }
-  correctAnswers: {},
 };
 
 // ===== API =====
@@ -77,26 +88,9 @@ async function apiGetTaskMetrics(sessionId, taskId) {
   return apiGet(`/api/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}/metrics`);
 }
 
-// --- NEW: persisted answers per test (backend file in data/) ---
-async function apiGetTestAnswers(testId) {
-  return apiGet(`/api/tests/${encodeURIComponent(testId)}/answers`);
-}
-
-async function apiPutTestAnswer(testId, taskId, answerIntOrNull) {
-  const res = await fetch(
-    `/api/tests/${encodeURIComponent(testId)}/answers/${encodeURIComponent(taskId)}`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ answer: answerIntOrNull }),
-    }
-  );
-  if (!res.ok) {
-    let err = {};
-    try { err = await res.json(); } catch { }
-    throw new Error(err.detail ?? res.statusText);
-  }
-  return res.json();
+// NEW: raw events for timeline
+async function apiGetSessionEvents(sessionId) {
+  return apiGet(`/api/sessions/${encodeURIComponent(sessionId)}/events`);
 }
 
 // ===== Rendering: metrics blocks =====
@@ -126,8 +120,6 @@ function renderMetricGrid(metricsObj, containerEl) {
 
 // ===== Dashboard: Test aggregation per task (prepared) =====
 function computeAggByTask(sessions) {
-  // We can now use per-task metrics in stats.tasks if desired later.
-  // For now: aggregate based on session primary task or (better) by iterating task metrics keys.
   const buckets = new Map();
 
   for (const s of sessions) {
@@ -140,11 +132,8 @@ function computeAggByTask(sessions) {
 
   const out = [];
   for (const [task, items] of buckets.entries()) {
-    // sessions count that contain this task
     const count = items.length;
 
-    // average task duration: if backend later provides stats.tasks[task].duration_ms per session, we can do it precisely.
-    // Right now, we fallback to session duration (not accurate for task-level), but keeps UI consistent.
     const durations = items
       .map(x => safeNum(x.stats?.session?.duration_ms))
       .filter(x => x !== null);
@@ -367,6 +356,610 @@ function closeTaskModal() {
   hide($("#taskMetricsModal"));
 }
 
+// ===== NEW: Timeline (modal) =====
+const EVENT_COLORS = {
+  // intervals
+  "MOVE": "#4C78A8",
+  "ZOOM": "#F58518",
+  "POPUP": "#72B7B2",
+  "INTRO": "#8E8E8E",
+
+  // instants
+  "answer selected": "#54A24B",
+  "answer button clicked": "#9C755F",
+  "setting task": "#E45756",
+  "completed": "#B279A2",
+  "legend opened": "#FF9DA6",
+  "polygon selected": "#A0CBE8",
+  "popupopen": "#72B7B2",
+  "popupclose": "#72B7B2",
+  "popupopen:name": "#D37295",
+  "show layer": "#59A14F",
+  "hide layer": "#EDC948",
+  "question dialog closed": "#79706E",
+  "zoom in": "#F58518",
+  "zoom out": "#F58518",
+};
+
+function colorFor(name) {
+  return EVENT_COLORS[name] ?? "#999999";
+}
+
+function toTextDetail(detail) {
+  if (!detail) return null;
+  if (isCoordinateLike(detail)) return null;
+  const t = String(detail).trim();
+  return t ? t : null;
+}
+
+function buildTimelineItems(events) {
+  // Output items:
+  // - interval: {type:"interval", name:"MOVE"|"ZOOM"|"POPUP", startTs, endTs, details[]}
+  // - instant:  {type:"instant", name, ts, detail}
+  const items = [];
+
+  let openMove = null;  // {startTs, hadZoom, details[]}
+  let openPopup = null; // {startTs, details[]}
+
+  for (let i = 0; i < events.length; i++) {
+    const e = events[i];
+    const ts = Number(e.timestamp);
+    const name = String(e.event_name);
+    const detail = toTextDetail(e.event_detail);
+
+    // --- MOVE/ZOOM interval handling (movestart..moveend, zoom in/out inside => ZOOM) ---
+    if (name === "movestart") {
+      // close previous open move if any (edge-case)
+      if (openMove) {
+        items.push({
+          type: "interval",
+          name: openMove.hadZoom ? "ZOOM" : "MOVE",
+          startTs: openMove.startTs,
+          endTs: ts,
+          details: openMove.details,
+        });
+      }
+      openMove = { startTs: ts, hadZoom: false, details: [] };
+      continue;
+    }
+
+    if (name === "zoom in" || name === "zoom out") {
+      if (openMove) {
+        openMove.hadZoom = true;
+        if (detail) openMove.details.push(`${name}: ${detail}`);
+      } else {
+        items.push({ type: "instant", name, ts, detail });
+      }
+      continue;
+    }
+
+    if (name === "moveend") {
+      if (openMove) {
+        items.push({
+          type: "interval",
+          name: openMove.hadZoom ? "ZOOM" : "MOVE",
+          startTs: openMove.startTs,
+          endTs: ts,
+          details: openMove.details,
+        });
+        openMove = null;
+      } else {
+        items.push({ type: "instant", name, ts, detail });
+      }
+      continue;
+    }
+
+    // --- POPUP interval handling (popupopen..popupclose) ---
+    if (name === "popupopen") {
+      // close previous open popup if any (edge-case)
+      if (openPopup) {
+        items.push({
+          type: "interval",
+          name: "POPUP",
+          startTs: openPopup.startTs,
+          endTs: ts,
+          details: openPopup.details,
+        });
+      }
+      openPopup = { startTs: ts, details: [] };
+      if (detail) openPopup.details.push(`popupopen: ${detail}`);
+      continue;
+    }
+
+    if (name === "popupclose") {
+      if (openPopup) {
+        if (detail) openPopup.details.push(`popupclose: ${detail}`);
+        items.push({
+          type: "interval",
+          name: "POPUP",
+          startTs: openPopup.startTs,
+          endTs: ts,
+          details: openPopup.details,
+        });
+        openPopup = null;
+      } else {
+        items.push({ type: "instant", name, ts, detail });
+      }
+      continue;
+    }
+
+    // If popup is open, collect useful detail from events that happen inside popup (optional)
+    // We keep it lightweight: only if event_detail exists and is text.
+    if (openPopup && detail) {
+      openPopup.details.push(`${name}: ${detail}`);
+    }
+
+    // default: instant tick
+    items.push({ type: "instant", name, ts, detail });
+  }
+
+  // close any open intervals at end
+  const lastTs = events.length ? Number(events[events.length - 1].timestamp) : 0;
+
+  if (openMove) {
+    items.push({
+      type: "interval",
+      name: openMove.hadZoom ? "ZOOM" : "MOVE",
+      startTs: openMove.startTs,
+      endTs: lastTs,
+      details: openMove.details,
+    });
+  }
+
+  if (openPopup) {
+    items.push({
+      type: "interval",
+      name: "POPUP",
+      startTs: openPopup.startTs,
+      endTs: lastTs,
+      details: openPopup.details,
+    });
+  }
+
+  return items;
+}
+
+function buildLegendHtml(usedNames) {
+  // usedNames: Set<string>
+  const items = Array.from(usedNames);
+  // prefer interval types first
+  const order = ["MOVE", "ZOOM", "POPUP"];
+  items.sort((a, b) => {
+    const ia = order.indexOf(a);
+    const ib = order.indexOf(b);
+    if (ia !== -1 || ib !== -1) return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+    return String(a).localeCompare(String(b));
+  });
+
+  const chips = items.map(name => `
+    <div style="display:flex; align-items:center; gap:8px; margin-right:14px; margin-bottom:8px;">
+      <span style="
+        width:12px; height:12px; border-radius:3px;
+        background:${colorFor(name)};
+        display:inline-block;
+        border:1px solid rgba(255,255,255,0.18);
+      "></span>
+      <span class="muted small" style="line-height:1;">${escapeHtml(name)}</span>
+    </div>
+  `).join("");
+
+  return `
+    <div style="margin-top:12px;">
+      <div class="muted small" style="margin-bottom:8px;">Legenda</div>
+      <div style="display:flex; flex-wrap:wrap; align-items:center;">
+        ${chips}
+      </div>
+    </div>
+  `;
+}
+
+function ensureTimelineTooltip(container) {
+  let tip = container.querySelector("#timelineTooltip");
+  if (tip) return tip;
+
+  tip = document.createElement("div");
+  tip.id = "timelineTooltip";
+  tip.className = "hidden";
+  tip.style.position = "fixed";
+  tip.style.zIndex = "9999";
+  tip.style.maxWidth = "520px";
+  tip.style.padding = "10px 12px";
+  tip.style.borderRadius = "12px";
+  tip.style.border = "1px solid rgba(255,255,255,0.14)";
+  tip.style.background = "rgba(10, 12, 16, 0.92)";
+  tip.style.boxShadow = "0 12px 30px rgba(0,0,0,0.45)";
+  tip.style.whiteSpace = "pre-line";
+  tip.style.pointerEvents = "none";
+  tip.style.fontSize = "12px";
+  tip.style.lineHeight = "1.25";
+
+  document.body.appendChild(tip);
+  return tip;
+}
+
+function wireTimelineTooltip(container) {
+  const tip = ensureTimelineTooltip(container);
+  const nodes = Array.from(container.querySelectorAll("[data-tip]"));
+
+  const hideTip = () => {
+    tip.classList.add("hidden");
+  };
+
+  const showTip = (text) => {
+    tip.textContent = text;
+    tip.classList.remove("hidden");
+  };
+
+  const moveTip = (evt) => {
+    // little offset from cursor, keep inside viewport
+    const pad = 14;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    // temporarily show to measure
+    const rect = tip.getBoundingClientRect();
+    let x = evt.clientX + pad;
+    let y = evt.clientY + pad;
+
+    if (x + rect.width + pad > vw) x = evt.clientX - rect.width - pad;
+    if (y + rect.height + pad > vh) y = evt.clientY - rect.height - pad;
+
+    tip.style.left = `${Math.max(8, x)}px`;
+    tip.style.top = `${Math.max(8, y)}px`;
+  };
+
+  nodes.forEach(el => {
+    el.addEventListener("mouseenter", (e) => {
+      const txt = el.dataset.tip || "";
+      if (!txt) return;
+      showTip(txt);
+      moveTip(e);
+    });
+    el.addEventListener("mousemove", moveTip);
+    el.addEventListener("mouseleave", hideTip);
+  });
+
+  // also hide when leaving modal content quickly
+  container.addEventListener("mouseleave", hideTip);
+}
+
+function findItemAtTime(items, tMs) {
+  // Prefer interval that contains t
+  for (const it of items) {
+    if (it.type === "interval" && tMs >= it.startTs && tMs <= it.endTs) return it;
+  }
+
+  // Otherwise find nearest instant within threshold
+  let best = null;
+  let bestDist = Infinity;
+  const TH = 200; // ms tolerance
+  for (const it of items) {
+    if (it.type !== "instant") continue;
+    const d = Math.abs(it.ts - tMs);
+    if (d < bestDist) {
+      bestDist = d;
+      best = it;
+    }
+  }
+  if (best && bestDist <= TH) return best;
+
+  return null;
+}
+
+function renderTimelineModalContent(eventsPayload) {
+  const container = $("#timelineContent");
+  if (!container) return;
+
+  const events = eventsPayload?.events ?? [];
+  if (!events.length) {
+    container.innerHTML = `
+      <div class="empty">
+        <div class="empty-title">Žádné eventy</div>
+        <div class="muted small">Pro tuto session se nepodařilo načíst eventy.</div>
+      </div>
+    `;
+    return;
+  }
+
+  // IMPORTANT: timeline starts at 0 (intro before first event)
+  const startTs = 0;
+  const firstEventTs = Number(events[0].timestamp);
+  const lastEventTs = Number(events[events.length - 1].timestamp);
+  const totalMs = Math.max(1, lastEventTs - startTs);
+  const totalSec = totalMs / 1000;
+
+  const items = buildTimelineItems(events);
+
+  // Add INTRO interval: 0 -> firstEventTs (if any gap)
+  if (Number.isFinite(firstEventTs) && firstEventTs > 0) {
+    items.unshift({
+      type: "interval",
+      name: "INTRO",
+      startTs: 0,
+      endTs: firstEventTs,
+      details: ["čas před prvním eventem (čtení zadání)"],
+    });
+  }
+
+  const usedNames = new Set();
+  items.forEach(it => usedNames.add(it.name));
+
+  const barHeightPx = 30; // 1.5x (was 20)
+
+  const segmentsHtml = items.map(it => {
+    if (it.type === "interval") {
+      const l = ((it.startTs - startTs) / totalMs) * 100;
+      const w = (Math.max(1, it.endTs - it.startTs) / totalMs) * 100;
+      const durSec = (it.endTs - it.startTs) / 1000;
+
+      const detailLines = Array.isArray(it.details) && it.details.length
+        ? `\n${it.details.slice(0, 12).join("\n")}${it.details.length > 12 ? "\n…" : ""}`
+        : "";
+
+      const tipText = `${it.name}\ntrvání: ${fmtSec(durSec)}${detailLines}`;
+
+      return `
+        <div
+          data-tip="${escapeHtml(tipText)}"
+          style="
+            position:absolute;
+            left:${l}%;
+            width:${w}%;
+            top:0;
+            height:100%;
+            background:${colorFor(it.name)};
+            opacity:0.95;
+            cursor:help;
+          ">
+        </div>
+      `;
+    } else {
+      const l = ((it.ts - startTs) / totalMs) * 100;
+      const relSec = (it.ts - startTs) / 1000;
+      const tipText = `${it.name}\nčas: ${fmtSec(relSec)}${it.detail ? `\n${it.detail}` : ""}`;
+
+      return `
+        <div
+          data-tip="${escapeHtml(tipText)}"
+          style="
+            position:absolute;
+            left:${l}%;
+            width:2px;
+            top:0;
+            height:100%;
+            background:${colorFor(it.name)};
+            opacity:0.95;
+            cursor:help;
+          ">
+        </div>
+      `;
+    }
+  }).join("");
+
+  const legendHtml = buildLegendHtml(usedNames);
+
+  // Slider ticks (text labels)
+  const tick25 = fmtSec(totalSec * 0.25);
+  const tick50 = fmtSec(totalSec * 0.50);
+  const tick75 = fmtSec(totalSec * 0.75);
+  const tick100 = fmtSec(totalSec);
+
+  container.innerHTML = `
+    <div style="
+      border-radius:12px;
+      background:rgba(255,255,255,0.04);
+      border:1px solid rgba(255,255,255,0.08);
+      padding:10px;
+      position:relative;
+    " id="timelineWrap">
+
+      <!-- marker spanning bar + legend area -->
+      <div id="timelineMarker" style="
+        position:absolute;
+        top:10px;
+        bottom:10px;
+        width:2px;
+        background:rgba(255,255,255,0.65);
+        left:0%;
+        pointer-events:none;
+        transform:translateX(-1px);
+      "></div>
+
+      <!-- BAR -->
+      <div style="
+        position:relative;
+        height:${barHeightPx}px;
+        overflow:hidden;
+        background:rgba(255,255,255,0.06);
+        border:1px solid rgba(255,255,255,0.08);
+        border-radius:0;       /* remove rounded corners */
+      " id="timelineBar">
+        ${segmentsHtml}
+      </div>
+
+      <!-- X axis ticks -->
+      <div class="row" style="justify-content:space-between; margin-top:10px;">
+        <div class="muted small">0 s</div>
+        <div class="muted small">${escapeHtml(tick25)}</div>
+        <div class="muted small">${escapeHtml(tick50)}</div>
+        <div class="muted small">${escapeHtml(tick75)}</div>
+        <div class="muted small">${escapeHtml(tick100)}</div>
+      </div>
+
+      <!-- Slider + readout -->
+      <div style="margin-top:12px;">
+        <div class="row" style="align-items:center; gap:12px;">
+          <div class="muted small" style="min-width:80px;">Čas</div>
+          <input
+            id="timelineSlider"
+            type="range"
+            min="0"
+            max="${Math.round(totalMs)}"
+            value="0"
+            step="10"
+            style="flex:1;"
+          />
+          <div class="muted small" id="timelineSliderTime" style="min-width:120px; text-align:right;">
+            0.0 s
+          </div>
+        </div>
+
+        <div id="timelineReadout" style="margin-top:10px;">
+          <div class="metric-grid">
+            <div class="metric">
+              <div class="k">Event</div>
+              <div class="v">—</div>
+            </div>
+            <div class="metric">
+              <div class="k">Čas</div>
+              <div class="v">0.0 s</div>
+            </div>
+            <div class="metric">
+              <div class="k">Detail</div>
+              <div class="v">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Legend -->
+      ${legendHtml}
+
+      <div class="muted small" style="margin-top:10px;">
+        Hover: ukáže typ eventu + trvání/čas + text z <b>event_detail</b> (pokud je k dispozici).
+        Slider: totéž pro konkrétní čas.
+      </div>
+    </div>
+  `;
+
+  // hover tooltip
+  wireTimelineTooltip(container);
+
+  // Slider wiring
+  const slider = $("#timelineSlider");
+  const marker = $("#timelineMarker");
+  const timeEl = $("#timelineSliderTime");
+  const readout = $("#timelineReadout");
+
+  function updateFromTime(tMs) {
+    const wrap = $("#timelineWrap");
+    const bar = $("#timelineBar");
+
+    if (marker && wrap && bar) {
+      const wrapRect = wrap.getBoundingClientRect();
+      const barRect = bar.getBoundingClientRect();
+
+      // x pozice uvnitř baru (px)
+      const xInBar = (tMs / totalMs) * barRect.width;
+
+      // marker chceme umístit tak, aby seděl na bar (a tím i na segmenty),
+      // ale zároveň spanoval celý wrap (osa + slider + legenda)
+      const leftPx = (barRect.left - wrapRect.left) + xInBar;
+
+      marker.style.left = `${leftPx}px`;
+    }
+
+
+    const sec = tMs / 1000;
+    if (timeEl) timeEl.textContent = fmtSec(sec);
+
+    const it = findItemAtTime(items, tMs);
+
+    let ev = "—";
+    let det = "—";
+    if (it) {
+      ev = it.name;
+
+      if (it.type === "interval") {
+        const d = (it.endTs - it.startTs) / 1000;
+        const dLines = Array.isArray(it.details) && it.details.length
+          ? it.details.slice(0, 6).join(" · ")
+          : null;
+        det = `trvání ${fmtSec(d)}${dLines ? ` · ${dLines}` : ""}`;
+      } else {
+        det = it.detail ?? "—";
+      }
+    }
+
+    if (readout) {
+      readout.innerHTML = `
+        <div class="metric-grid">
+          <div class="metric">
+            <div class="k">Event</div>
+            <div class="v">${escapeHtml(ev)}</div>
+          </div>
+          <div class="metric">
+            <div class="k">Čas</div>
+            <div class="v">${escapeHtml(fmtSec(sec))}</div>
+          </div>
+          <div class="metric">
+            <div class="k">Detail</div>
+            <div class="v">${escapeHtml(det)}</div>
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  if (slider) {
+    slider.addEventListener("input", () => {
+      const tMs = Number(slider.value);
+      updateFromTime(tMs);
+    });
+
+    // init state
+    updateFromTime(0);
+
+    window.addEventListener("resize", () => {
+      const tMs = slider ? Number(slider.value) : 0;
+      updateFromTime(tMs);
+    });
+
+  }
+}
+
+async function openTimelineModal() {
+  const s = state.selectedSession;
+  if (!s?.session_id) return;
+
+  const modal = $("#timelineModal");
+  const subtitle = $("#timelineModalSubtitle");
+  const content = $("#timelineContent");
+
+  if (subtitle) {
+    subtitle.textContent = `Session: ${s.session_id} · user: ${s.user_id ?? "—"}`;
+  }
+
+  if (content) {
+    content.innerHTML = `
+      <div class="empty">
+        <div class="empty-title">Načítám časovou osu…</div>
+        <div class="muted small">Chvilku strpení.</div>
+      </div>
+    `;
+  }
+
+  show(modal);
+
+  try {
+    const payload = await apiGetSessionEvents(s.session_id);
+    renderTimelineModalContent(payload);
+  } catch (e) {
+    if (content) {
+      content.innerHTML = `
+        <div class="empty">
+          <div class="empty-title">Chyba</div>
+          <div class="muted small">${escapeHtml(e?.message ?? e)}</div>
+        </div>
+      `;
+    }
+  }
+}
+
+function closeTimelineModal() {
+  hide($("#timelineModal"));
+}
+
 // ===== Selection + Breadcrumbs =====
 function updateBreadcrumbs() {
   const testEl = $("#crumb-test");
@@ -415,130 +1008,6 @@ async function refreshSessions() {
   }
 }
 
-// ===== Settings page =====
-function getAllTasksForSelectedTest() {
-  // MVP: sessions nejsou asociované s testId, takže bereme všechny tasks z nahraných sessions
-  const set = new Set();
-  for (const s of state.sessions) {
-    const taskIds = Array.isArray(s.tasks) && s.tasks.length ? s.tasks : [s.task ?? "unknown"];
-    for (const t of taskIds) set.add(String(t));
-  }
-  return Array.from(set).sort((a, b) => a.localeCompare(b));
-}
-
-function renderSettingsStatus(text) {
-  const el = $("#settingsStatus");
-  if (el) el.textContent = text ?? "—";
-}
-
-async function loadAnswersForSelectedTest() {
-  const testId = state.selectedTestId ?? "TEST";
-  try {
-    renderSettingsStatus("Načítám uložené odpovědi…");
-    const out = await apiGetTestAnswers(testId);
-    state.correctAnswers[testId] = out.answers ?? {};
-    renderSettingsStatus("Načteno.");
-  } catch (e) {
-    renderSettingsStatus(`Chyba načtení: ${e?.message ?? e}`);
-    state.correctAnswers[testId] = state.correctAnswers[testId] ?? {};
-  }
-}
-
-function getCorrectAnswerLocal(testId, taskId) {
-  return state.correctAnswers?.[testId]?.[taskId];
-}
-
-async function setCorrectAnswerPersisted(testId, taskId, answerIntOrNull) {
-  // optimistic update
-  if (!state.correctAnswers[testId]) state.correctAnswers[testId] = {};
-  if (answerIntOrNull === null) {
-    delete state.correctAnswers[testId][taskId];
-  } else {
-    state.correctAnswers[testId][taskId] = answerIntOrNull;
-  }
-
-  try {
-    renderSettingsStatus("Ukládám…");
-    await apiPutTestAnswer(testId, taskId, answerIntOrNull);
-    renderSettingsStatus("Uloženo.");
-  } catch (e) {
-    renderSettingsStatus(`Chyba uložení: ${e?.message ?? e}`);
-  }
-}
-
-function renderSettingsPage() {
-  const testId = state.selectedTestId ?? "TEST";
-
-  const nameEl = $("#settingsTestName");
-  if (nameEl) nameEl.textContent = testId;
-
-  const listEl = $("#settingsTasksList");
-  if (!listEl) return;
-
-  const tasks = getAllTasksForSelectedTest();
-
-  if (!tasks.length) {
-    listEl.innerHTML = `
-      <div class="empty">
-        <div class="empty-title">Zatím žádné úlohy</div>
-        <div class="muted small">Nahraj aspoň jednu session (CSV), aby se načetly názvy úloh.</div>
-      </div>
-    `;
-    return;
-  }
-
-  listEl.innerHTML = tasks.map((taskId) => {
-    const val = getCorrectAnswerLocal(testId, taskId);
-    const valueAttr = (val === null || val === undefined) ? "" : String(val);
-
-    return `
-      <div class="list-item" data-task="${escapeHtml(taskId)}">
-        <div class="row" style="align-items:center; justify-content:space-between; gap:12px;">
-          <div>
-            <div class="title">${escapeHtml(taskId)}</div>
-            <div class="muted small">Správná odpověď (integer)</div>
-          </div>
-
-          <input
-            type="number"
-            inputmode="numeric"
-            step="1"
-            value="${escapeHtml(valueAttr)}"
-            placeholder="např. 3"
-            style="width:140px;"
-          />
-        </div>
-      </div>
-    `;
-  }).join("");
-
-  // listeners na inputy
-  $$("#settingsTasksList .list-item").forEach((item) => {
-    const taskId = item.dataset.task;
-    const input = item.querySelector("input");
-    if (!input) return;
-
-    input.addEventListener("change", async () => {
-      const raw = input.value;
-
-      if (raw === "") {
-        await setCorrectAnswerPersisted(testId, taskId, null);
-        return;
-      }
-
-      const n = Number(raw);
-      if (!Number.isInteger(n)) {
-        const fixed = Math.trunc(n);
-        input.value = String(fixed);
-        await setCorrectAnswerPersisted(testId, taskId, fixed);
-        return;
-      }
-
-      await setCorrectAnswerPersisted(testId, taskId, n);
-    });
-  });
-}
-
 // ===== Events wiring =====
 function wireNavButtons() {
   $("#openTestBtn")?.addEventListener("click", () => {
@@ -564,10 +1033,8 @@ function wireNavButtons() {
     renderSessionMetrics();
   });
 
-  $("#openSettingsBtn")?.addEventListener("click", async () => {
+  $("#openSettingsBtn")?.addEventListener("click", () => {
     setPage("settings");
-    await loadAnswersForSelectedTest();
-    renderSettingsPage();
   });
 
   $("#backFromSettingsBtn")?.addEventListener("click", () => {
@@ -575,9 +1042,9 @@ function wireNavButtons() {
     selectTest(state.selectedTestId ?? "TEST");
   });
 
-  $("#settingsReloadBtn")?.addEventListener("click", async () => {
-    await loadAnswersForSelectedTest();
-    renderSettingsPage();
+  // NEW: Timeline button (on "Úlohy v session" page, right column)
+  $("#openTimelineBtn")?.addEventListener("click", () => {
+    openTimelineModal();
   });
 }
 
@@ -586,10 +1053,18 @@ function wireModal() {
   $("#closeTaskModalBtn2")?.addEventListener("click", closeTaskModal);
   $("#taskMetricsModal .modal-backdrop")?.addEventListener("click", closeTaskModal);
 
+  // NEW: timeline modal close wiring (only if modal exists in HTML)
+  $("#closeTimelineBtn")?.addEventListener("click", closeTimelineModal);
+  $("#closeTimelineBtn2")?.addEventListener("click", closeTimelineModal);
+  $("#timelineModalBackdrop")?.addEventListener("click", closeTimelineModal);
+
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
-      const modal = $("#taskMetricsModal");
-      if (modal && !modal.classList.contains("hidden")) closeTaskModal();
+      const modal1 = $("#taskMetricsModal");
+      if (modal1 && !modal1.classList.contains("hidden")) closeTaskModal();
+
+      const modal2 = $("#timelineModal");
+      if (modal2 && !modal2.classList.contains("hidden")) closeTimelineModal();
     }
   });
 }
@@ -626,11 +1101,6 @@ function wireUpload() {
         renderTasksList();
       }
 
-      if (!$("#view-settings")?.classList.contains("hidden")) {
-        // tasks list might change if new CSV introduces new task ids
-        renderSettingsPage();
-      }
-
     } catch (ex) {
       if (statusEl) statusEl.textContent = `Chyba: ${ex?.message ?? ex}`;
     } finally {
@@ -656,14 +1126,6 @@ async function init() {
   setPage("dashboard");
   updateBreadcrumbs();
   renderTestAggMetrics();
-
-  // preload cached answers for default test (non-blocking)
-  (async () => {
-    try {
-      const out = await apiGetTestAnswers(state.selectedTestId ?? "TEST");
-      state.correctAnswers[state.selectedTestId] = out.answers ?? {};
-    } catch { /* ignore */ }
-  })();
 }
 
 init();

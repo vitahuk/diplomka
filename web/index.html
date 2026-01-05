@@ -20,7 +20,6 @@
         </div>
 
         <div class="breadcrumb" aria-label="Breadcrumb">
-          <!-- JS si sem později může psát stav: TEST > session > task -->
           <span class="crumb" id="crumb-root">Testy</span>
           <span class="crumb-sep">›</span>
           <span class="crumb muted" id="crumb-test">—</span>
@@ -61,7 +60,6 @@
             </div>
 
             <div class="list" id="testsList">
-              <!-- MVP: default TEST (JS může později přegenerovat) -->
               <div class="list-item is-selected" data-test="TEST">
                 <div class="row">
                   <div class="title">TEST</div>
@@ -231,12 +229,19 @@
           <section class="card">
             <div class="card-head">
               <h2>Detail (později)</h2>
-              <div class="muted small">Sem později přijde individuální pohled: mapa, timeline, soc-dem info…</div>
+              <div class="muted small">Sem později přijde individuální pohled: mapa, soc-dem info…</div>
             </div>
 
             <div class="stack">
+              <!-- ADDITIVE: button to open timeline -->
+              <div class="placeholder-box">
+                <div class="row" style="justify-content:space-between; align-items:center; gap:12px;">
+                  <div class="muted small">Timeline eventů pro celou session.</div>
+                  <button class="btn" id="openTimelineBtn" type="button">Časová osa eventů</button>
+                </div>
+              </div>
+
               <div class="placeholder-box">Mapa (trajektorie + viewpointy)</div>
-              <div class="placeholder-box">Časová osa eventů</div>
               <div class="placeholder-box">Soc-dem info</div>
             </div>
           </section>
@@ -259,8 +264,6 @@
         </div>
 
         <div class="modal-body">
-
-          <!-- JS sem vloží metriky konkrétní úlohy -->
           <div class="metrics" id="taskModalMetrics">
             <div class="empty">
               <div class="empty-title">Zatím nic</div>
@@ -271,6 +274,39 @@
 
         <div class="modal-foot">
           <button class="btn btn-ghost" id="closeTaskModalBtn2" type="button">Zavřít</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- NEW: TIMELINE MODAL -->
+    <div class="modal hidden" id="timelineModal" role="dialog" aria-modal="true" aria-labelledby="timelineModalTitle">
+      <div class="modal-backdrop" id="timelineModalBackdrop"></div>
+
+      <!-- wide modal-card using inline style (no CSS changes) -->
+      <div class="modal-card" style="width:min(1200px, 94vw);">
+        <div class="modal-head">
+          <div>
+            <div class="modal-title" id="timelineModalTitle">Časová osa eventů</div>
+            <div class="muted small" id="timelineModalSubtitle">—</div>
+          </div>
+          <button class="icon-btn" id="closeTimelineBtn" type="button" aria-label="Zavřít">✕</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="muted small" style="margin-bottom:10px;">
+            Barevné segmenty = intervaly (MOVE/ZOOM), svislé čárky = bodové eventy. Hover ukáže detail.
+          </div>
+
+          <div id="timelineContent">
+            <div class="empty">
+              <div class="empty-title">Zatím nic</div>
+              <div class="muted small">Otevři timeline nad vybranou session.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-foot">
+          <button class="btn btn-ghost" id="closeTimelineBtn2" type="button">Zavřít</button>
         </div>
       </div>
     </div>
