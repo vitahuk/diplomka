@@ -33,6 +33,10 @@
           <input id="csvInput" type="file" accept=".csv" />
           <span>+ Nahrát CSV (session)</span>
         </label>
+        <label class="upload-chip" title="Nahraj hromadné CSV">
+          <input id="bulkCsvInput" type="file" accept=".csv" />
+          <span>+ Nahrát hromadné CSV</span>
+        </label>
       </div>
     </header>
 
@@ -76,7 +80,7 @@
             <div class="hint">
               <div class="hint-title">Poznámka</div>
               <div class="muted small">
-                Nahrané CSV = jedna session (jeden uživatel). Sessions se po nahrání zobrazí v „Otevřít test“ kroku.
+                Nahrané CSV = jedna session (jeden uživatel). Hromadné CSV vytvoří jednu session pro každý <b>userid</b> v souboru.
               </div>
               <div id="uploadStatus" class="muted small" style="margin-top:8px;"></div>
             </div>

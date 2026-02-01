@@ -6,6 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi import Body
 
 from pathlib import Path
+import re
 import shutil
 from typing import Any, Dict, Optional, List
 
@@ -13,7 +14,15 @@ import pandas as pd
 
 from app.storage import STORE, SessionData, ensure_upload_dir
 from app.storage import get_test_answers, set_test_answer
-from app.parsing.maptrack_csv import parse_session, list_task_ids, ParsedSession
+from app.parsing.maptrack_csv import (
+    parse_session,
+    parse_session_df,
+    list_task_ids,
+    ParsedSession,
+    get_user_id_column,
+    infer_session_id_from_filename,
+    validate_maptrack_df,
+)
 from app.analysis.metrics import (
     compute_session_metrics,
     compute_all_task_metrics,
@@ -61,6 +70,27 @@ def _read_soc_demo_row(csv_path: Path) -> Dict[str, Any]:
             out[k] = row.get(k)
     return out
 
+def _normalize_user_id(value: Any) -> Optional[str]:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    s = str(value).strip()
+    return s if s else None
+
+
+def _read_soc_demo_rows_by_user(df: pd.DataFrame, user_col: str) -> Dict[str, Dict[str, Any]]:
+    out: Dict[str, Dict[str, Any]] = {}
+    for _, row in df.iterrows():
+        user_id = _normalize_user_id(row.get(user_col))
+        if not user_id or user_id in out:
+            continue
+        row_dict = row.to_dict()
+        out[user_id] = {k: row_dict.get(k) for k in SOC_DEMO_KEYS if k in row_dict}
+    return out
+
+
+def _sanitize_filename_component(value: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9_-]+", "_", value).strip("_")
+    return cleaned or "user"
 
 # =========================
 # API
@@ -123,6 +153,93 @@ async def upload_csv(file: UploadFile = File(...)):
         "task": primary_task,  # legacy
         "tasks": tasks,        # list of tasks for UI
         "stats": stats,        # { session:..., tasks:{...} }
+    }
+
+@app.post("/api/upload/bulk")
+async def upload_bulk_csv(file: UploadFile = File(...)):
+    if not file.filename.lower().endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Nahraj prosím CSV soubor.")
+
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    dst = UPLOAD_DIR / file.filename
+
+    try:
+        with dst.open("wb") as f:
+            shutil.copyfileobj(file.file, f)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Uložení souboru selhalo: {e}")
+
+    try:
+        df = pd.read_csv(dst)
+        validate_maptrack_df(df)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Zpracování CSV selhalo: {e}")
+
+    user_col = get_user_id_column(df)
+    if not user_col:
+        raise HTTPException(status_code=400, detail="CSV neobsahuje povinný sloupec 'userid'.")
+
+    df["_user_id_norm"] = df[user_col].apply(_normalize_user_id)
+    df = df[df["_user_id_norm"].notna()]
+    if df.empty:
+        raise HTTPException(status_code=400, detail="CSV neobsahuje žádné platné hodnoty ve sloupci 'userid'.")
+
+    soc_rows = _read_soc_demo_rows_by_user(df, "_user_id_norm")
+    base_session_id = infer_session_id_from_filename(file.filename)
+
+    sessions_out: List[Dict[str, Any]] = []
+
+    try:
+        for user_id, df_user in df.groupby("_user_id_norm", sort=False):
+            df_user = df_user.drop(columns=["_user_id_norm"])
+
+            user_suffix = _sanitize_filename_component(str(user_id))
+            user_filename = f"{dst.stem}__{user_suffix}.csv"
+            user_path = UPLOAD_DIR / user_filename
+            df_user.to_csv(user_path, index=False)
+
+            session_id = f"{base_session_id}__{user_suffix}"
+            parsed_session = parse_session_df(
+                df_user,
+                user_filename,
+                user_id_override=str(user_id),
+                session_id_override=session_id,
+            )
+
+            tasks: List[str] = list_task_ids(parsed_session)
+            primary_task: Optional[str] = tasks[0] if tasks else None
+
+            soc_row = soc_rows.get(str(user_id), {})
+            session_metrics = compute_session_metrics(session=parsed_session, raw_row=soc_row)
+            task_metrics = compute_all_task_metrics(parsed_session)
+
+            stats: Dict[str, Any] = {
+                "session": session_metrics,
+                "tasks": task_metrics,
+            }
+
+            session_meta = SessionData(
+                session_id=parsed_session.session_id,
+                file_path=str(user_path),
+                user_id=parsed_session.user_id,
+                task=primary_task,
+                stats=stats,
+            )
+            STORE.upsert(session_meta)
+
+            sessions_out.append({
+                "session_id": parsed_session.session_id,
+                "user_id": parsed_session.user_id,
+                "task": primary_task,
+                "tasks": tasks,
+                "stats": stats,
+            })
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Zpracování hromadného CSV selhalo: {e}")
+
+    return {
+        "count": len(sessions_out),
+        "sessions": sessions_out,
     }
 
 

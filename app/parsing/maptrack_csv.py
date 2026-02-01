@@ -166,18 +166,32 @@ def _normalize_task_id(v: Any) -> Optional[str]:
 # Main parsing entry points
 # =========================
 
-def read_maptrack_csv(path: str) -> pd.DataFrame:
-    df = pd.read_csv(path)
-
+def validate_maptrack_df(df: pd.DataFrame) -> None:
     required = {"timestamp", "event_name", "event_detail"}
     missing = required - set(df.columns)
     if missing:
         raise ValueError(f"CSV chybí povinné sloupce: {sorted(missing)}")
 
+def read_maptrack_csv(path: str) -> pd.DataFrame:
+    df = pd.read_csv(path)
+    validate_maptrack_df(df)
     return df
 
 
-def parse_session(csv_path: str, filename: str) -> ParsedSession:
+def get_user_id_column(df: pd.DataFrame) -> Optional[str]:
+    for col in df.columns:
+        if str(col).lower() == "userid":
+            return col
+    return None
+
+
+def parse_session_df(
+    df: pd.DataFrame,
+    filename: str,
+    *,
+    user_id_override: Optional[str] = None,
+    session_id_override: Optional[str] = None,
+) -> ParsedSession:
     """
     Komplexní parsing:
     - načte CSV
@@ -186,13 +200,17 @@ def parse_session(csv_path: str, filename: str) -> ParsedSession:
         A) primárně podle sloupce 'task' (pokud existuje)
         B) fallback: když 'task' není, tak state machine přes event 'setting task'
     """
-    df = read_maptrack_csv(csv_path)
+    validate_maptrack_df(df)
 
-    session_id = infer_session_id_from_filename(filename)
+    session_id = session_id_override or infer_session_id_from_filename(filename)
 
     user_id: Optional[str] = None
-    if "userId" in df.columns and len(df) > 0:
-        user_id = _normalize_task_id(df["userId"].iloc[0])
+    if user_id_override is not None:
+        user_id = _normalize_task_id(user_id_override)
+    else:
+        user_id_col = get_user_id_column(df)
+        if user_id_col and len(df) > 0:
+            user_id = _normalize_task_id(df[user_id_col].iloc[0])
 
     has_task_column = "task" in df.columns
     current_task: Optional[str] = None  # pro fallback režim
@@ -252,6 +270,11 @@ def parse_session(csv_path: str, filename: str) -> ParsedSession:
         events=events,
         tasks=tasks,
     )
+
+
+def parse_session(csv_path: str, filename: str) -> ParsedSession:
+    df = read_maptrack_csv(csv_path)
+    return parse_session_df(df, filename)
 
 
 # =========================

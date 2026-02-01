@@ -86,6 +86,18 @@ async function apiUpload(file) {
   return res.json();
 }
 
+async function apiUploadBulk(file) {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch("/api/upload/bulk", { method: "POST", body: fd });
+  if (!res.ok) {
+    let err = {};
+    try { err = await res.json(); } catch { }
+    throw new Error(err.detail ?? res.statusText);
+  }
+  return res.json();
+}
+
 async function apiGetTestAnswers(testId) {
   return apiGet(`/api/tests/${encodeURIComponent(testId)}/answers`);
 }
@@ -1269,11 +1281,57 @@ function wireUpload() {
   });
 }
 
+function wireBulkUpload() {
+  const input = $("#bulkCsvInput");
+  if (!input) return;
+
+  input.addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const statusEl = $("#uploadStatus");
+    if (statusEl) statusEl.textContent = `Nahrávám hromadné CSV: ${file.name}…`;
+
+    try {
+      const out = await apiUploadBulk(file);
+      if (statusEl) statusEl.textContent = `Nahráno hromadné CSV: ${out.count ?? 0} sessions`;
+
+      await refreshSessions();
+      renderTestAggMetrics();
+
+      if (!state.selectedSessionId && out.sessions?.length) {
+        const firstSessionId = out.sessions[0].session_id;
+        state.selectedSessionId = firstSessionId;
+        state.selectedSession = state.sessions.find(s => s.session_id === firstSessionId) ?? null;
+      }
+
+      if (!$("#view-individual")?.classList.contains("hidden")) {
+        renderSessionsList();
+        renderSessionMetrics();
+      }
+
+      if (!$("#view-group")?.classList.contains("hidden")) {
+        renderTasksList();
+      }
+
+      if (!$("#view-settings")?.classList.contains("hidden")) {
+        renderSettingsPage();
+      }
+    } catch (ex) {
+      if (statusEl) statusEl.textContent = `Chyba: ${ex?.message ?? ex}`;
+    } finally {
+      input.value = "";
+    }
+  });
+}
+
+
 // ===== Init =====
 async function init() {
   wireNavButtons();
   wireModal();
   wireUpload();
+  wireBulkUpload();
 
   try {
     await refreshSessions();
