@@ -180,7 +180,8 @@ def read_maptrack_csv(path: str) -> pd.DataFrame:
 
 def get_user_id_column(df: pd.DataFrame) -> Optional[str]:
     for col in df.columns:
-        if str(col).lower() == "userid":
+        normalized = re.sub(r"[^a-z0-9]", "", str(col).lower())
+        if normalized == "userid":
             return col
     return None
 

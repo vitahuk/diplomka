@@ -18,8 +18,11 @@ Rozepsat soc-demo info každé session
 Agregace
 
 po konzultaci:
-- nahrávání combined CSV kde je více uživatelů - druhé tlačítko pro nahrání
+- nahrávání combined CSV kde je více uživatelů - druhé tlačítko pro nahrání  --- hotovo
 - agregace do skupin + potom srovnání 2-3 skupin
 - u porovnávání agregace mě zajímají statistiky na úrovni úloh - průměrný čas řešení úlohy atd.
 - nějaké grafy bych tam měl dát, nevím jaké
 - heatmapy fakt moc nedávají smysl
+
+
+- v seznamu sessions (uživatelů), aby se vpravo sekce pohybovala s pohybem obrazovky
