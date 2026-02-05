@@ -65,6 +65,7 @@ const state = {
     ageMax: "",
     occupation: "",
     nationality: "",
+    userIdQuery: "",
   },
   // answers cache: testId -> { taskId -> int }
   correctAnswers: {},
@@ -232,6 +233,10 @@ function normalizeFilterValue(value) {
   return String(value ?? "").trim().toLowerCase();
 }
 
+function normalizeSearchValue(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
 function parseOptionalNumber(value) {
   if (value === "" || value === null || value === undefined) return null;
   const num = Number(value);
@@ -264,8 +269,9 @@ function renderSessionFilterControls() {
   const nationalityEl = $("#sessionFilterNationality");
   const ageMinEl = $("#sessionFilterAgeMin");
   const ageMaxEl = $("#sessionFilterAgeMax");
+  const userIdEl = $("#sessionFilterUserId");
 
-  if (!genderEl || !occupationEl || !nationalityEl || !ageMinEl || !ageMaxEl) return;
+  if (!genderEl || !occupationEl || !nationalityEl || !ageMinEl || !ageMaxEl || !userIdEl) return;
 
   const options = getSessionFilterOptions(state.sessions);
   const makeOptions = (values, emptyLabel) => {
@@ -282,6 +288,7 @@ function renderSessionFilterControls() {
   nationalityEl.value = state.sessionFilters.nationality;
   ageMinEl.value = state.sessionFilters.ageMin;
   ageMaxEl.value = state.sessionFilters.ageMax;
+  userIdEl.value = state.sessionFilters.userIdQuery;
 }
 
 function applySessionFilters(sessions) {
@@ -290,6 +297,7 @@ function applySessionFilters(sessions) {
   const nationalityFilter = normalizeFilterValue(state.sessionFilters.nationality);
   const ageMin = parseOptionalNumber(state.sessionFilters.ageMin);
   const ageMax = parseOptionalNumber(state.sessionFilters.ageMax);
+  const userIdQuery = normalizeSearchValue(state.sessionFilters.userIdQuery);
 
   return sessions.filter((session) => {
     const soc = getSocDemo(session);
@@ -297,10 +305,12 @@ function applySessionFilters(sessions) {
     const occupation = normalizeFilterValue(soc.occupation);
     const nationality = normalizeFilterValue(soc.nationality);
     const age = parseOptionalNumber(soc.age);
+    const userId = normalizeSearchValue(session.user_id);
 
     if (genderFilter && genderFilter !== gender) return false;
     if (occupationFilter && occupationFilter !== occupation) return false;
     if (nationalityFilter && nationalityFilter !== nationality) return false;
+    if (userIdQuery && !userId.includes(userIdQuery)) return false;
 
     if (ageMin !== null || ageMax !== null) {
       if (age === null) return false;
@@ -1444,9 +1454,10 @@ function wireSessionFilters() {
   const nationalityEl = $("#sessionFilterNationality");
   const ageMinEl = $("#sessionFilterAgeMin");
   const ageMaxEl = $("#sessionFilterAgeMax");
+  const userIdEl = $("#sessionFilterUserId");
   const clearBtn = $("#clearSessionFiltersBtn");
 
-  if (!genderEl || !occupationEl || !nationalityEl || !ageMinEl || !ageMaxEl || !clearBtn) return;
+  if (!genderEl || !occupationEl || !nationalityEl || !ageMinEl || !ageMaxEl || !userIdEl || !clearBtn) return;
 
   const updateAndRender = () => {
     state.sessionFilters.gender = genderEl.value;
@@ -1454,6 +1465,7 @@ function wireSessionFilters() {
     state.sessionFilters.nationality = nationalityEl.value;
     state.sessionFilters.ageMin = ageMinEl.value;
     state.sessionFilters.ageMax = ageMaxEl.value;
+    state.sessionFilters.userIdQuery = userIdEl.value;
     renderSessionsList();
   };
 
@@ -1462,6 +1474,7 @@ function wireSessionFilters() {
   nationalityEl.addEventListener("change", updateAndRender);
   ageMinEl.addEventListener("input", updateAndRender);
   ageMaxEl.addEventListener("input", updateAndRender);
+  userIdEl.addEventListener("input", updateAndRender);
 
   clearBtn.addEventListener("click", () => {
     state.sessionFilters = {
@@ -1470,6 +1483,7 @@ function wireSessionFilters() {
       ageMax: "",
       occupation: "",
       nationality: "",
+      userIdQuery: "",
     };
     renderSessionsList();
   });
