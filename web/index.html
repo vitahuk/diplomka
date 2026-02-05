@@ -166,6 +166,34 @@
             <div class="card-head">
               <h2>Seznam sessions v testu</h2>
               <div class="muted small">Kliknutí = výběr session (nic dalšího). Tlačítko = pokračování.</div>
+              <div class="filter-panel">
+                <div class="filter-grid">
+                  <label class="filter-field">
+                    <span>Pohlaví</span>
+                    <select id="sessionFilterGender"></select>
+                  </label>
+                  <label class="filter-field">
+                    <span>Věk od</span>
+                    <input id="sessionFilterAgeMin" type="number" inputmode="numeric" min="0" placeholder="např. 18" />
+                  </label>
+                  <label class="filter-field">
+                    <span>Věk do</span>
+                    <input id="sessionFilterAgeMax" type="number" inputmode="numeric" min="0" placeholder="např. 65" />
+                  </label>
+                  <label class="filter-field">
+                    <span>Povolání</span>
+                    <select id="sessionFilterOccupation"></select>
+                  </label>
+                  <label class="filter-field">
+                    <span>Národnost</span>
+                    <select id="sessionFilterNationality"></select>
+                  </label>
+                </div>
+                <div class="filter-actions">
+                  <button class="btn btn-ghost" id="clearSessionFiltersBtn" type="button">Zrušit filtr</button>
+                  <div class="muted small" id="sessionFilterSummary"></div>
+                </div>
+              </div>
             </div>
 
             <div class="list" id="sessionsList">
@@ -318,7 +346,7 @@
 
   </div>
 
-  <script src="/static/app.js?v=3"></script>
+  <script src="/static/app.js?v=4"></script>
 </body>
 
 </html>

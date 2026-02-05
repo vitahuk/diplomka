@@ -59,6 +59,13 @@ const state = {
   selectedSession: null,
   selectedTaskId: null,
   sessions: [],
+  sessionFilters: {
+    gender: "",
+    ageMin: "",
+    ageMax: "",
+    occupation: "",
+    nationality: "",
+  },
   // answers cache: testId -> { taskId -> int }
   correctAnswers: {},
 };
@@ -217,13 +224,104 @@ function renderTestAggMetrics() {
 }
 
 // ===== Sessions list page =====
+function getSocDemo(session) {
+  return session?.stats?.session?.soc_demo ?? {};
+}
+
+function normalizeFilterValue(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function parseOptionalNumber(value) {
+  if (value === "" || value === null || value === undefined) return null;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+
+function getSessionFilterOptions(sessions) {
+  const gender = new Set();
+  const occupation = new Set();
+  const nationality = new Set();
+
+  sessions.forEach((session) => {
+    const soc = getSocDemo(session);
+    if (soc.gender) gender.add(String(soc.gender));
+    if (soc.occupation) occupation.add(String(soc.occupation));
+    if (soc.nationality) nationality.add(String(soc.nationality));
+  });
+
+  const sort = (a, b) => a.localeCompare(b, "cs", { sensitivity: "base" });
+  return {
+    gender: Array.from(gender).sort(sort),
+    occupation: Array.from(occupation).sort(sort),
+    nationality: Array.from(nationality).sort(sort),
+  };
+}
+
+function renderSessionFilterControls() {
+  const genderEl = $("#sessionFilterGender");
+  const occupationEl = $("#sessionFilterOccupation");
+  const nationalityEl = $("#sessionFilterNationality");
+  const ageMinEl = $("#sessionFilterAgeMin");
+  const ageMaxEl = $("#sessionFilterAgeMax");
+
+  if (!genderEl || !occupationEl || !nationalityEl || !ageMinEl || !ageMaxEl) return;
+
+  const options = getSessionFilterOptions(state.sessions);
+  const makeOptions = (values, emptyLabel) => {
+    const base = [`<option value="">${escapeHtml(emptyLabel)}</option>`];
+    return base.concat(values.map(value => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`));
+  };
+
+  genderEl.innerHTML = makeOptions(options.gender, "Vše");
+  occupationEl.innerHTML = makeOptions(options.occupation, "Vše");
+  nationalityEl.innerHTML = makeOptions(options.nationality, "Vše");
+
+  genderEl.value = state.sessionFilters.gender;
+  occupationEl.value = state.sessionFilters.occupation;
+  nationalityEl.value = state.sessionFilters.nationality;
+  ageMinEl.value = state.sessionFilters.ageMin;
+  ageMaxEl.value = state.sessionFilters.ageMax;
+}
+
+function applySessionFilters(sessions) {
+  const genderFilter = normalizeFilterValue(state.sessionFilters.gender);
+  const occupationFilter = normalizeFilterValue(state.sessionFilters.occupation);
+  const nationalityFilter = normalizeFilterValue(state.sessionFilters.nationality);
+  const ageMin = parseOptionalNumber(state.sessionFilters.ageMin);
+  const ageMax = parseOptionalNumber(state.sessionFilters.ageMax);
+
+  return sessions.filter((session) => {
+    const soc = getSocDemo(session);
+    const gender = normalizeFilterValue(soc.gender);
+    const occupation = normalizeFilterValue(soc.occupation);
+    const nationality = normalizeFilterValue(soc.nationality);
+    const age = parseOptionalNumber(soc.age);
+
+    if (genderFilter && genderFilter !== gender) return false;
+    if (occupationFilter && occupationFilter !== occupation) return false;
+    if (nationalityFilter && nationalityFilter !== nationality) return false;
+
+    if (ageMin !== null || ageMax !== null) {
+      if (age === null) return false;
+      if (ageMin !== null && age < ageMin) return false;
+      if (ageMax !== null && age > ageMax) return false;
+    }
+
+    return true;
+  });
+}
+
 function renderSessionsList() {
   const listEl = $("#sessionsList");
   if (!listEl) return;
 
   const sessions = state.sessions;
+  renderSessionFilterControls();
+  const summaryEl = $("#sessionFilterSummary");
 
   if (!sessions.length) {
+    if (summaryEl) summaryEl.textContent = "Zobrazeno 0 z 0";
     listEl.innerHTML = `
       <div class="empty">
         <div class="empty-title">Žádná session</div>
@@ -233,7 +331,22 @@ function renderSessionsList() {
     return;
   }
 
-  listEl.innerHTML = sessions.map(s => {
+  const filteredSessions = applySessionFilters(sessions);
+  if (summaryEl) {
+    summaryEl.textContent = `Zobrazeno ${filteredSessions.length} z ${sessions.length}`;
+  }
+
+  if (!filteredSessions.length) {
+    listEl.innerHTML = `
+      <div class="empty">
+        <div class="empty-title">Žádná session neodpovídá filtru</div>
+        <div class="muted small">Uprav filtry nebo je zruš tlačítkem „Zrušit filtr“.</div>
+      </div>
+    `;
+    return;
+  }
+
+  listEl.innerHTML = filteredSessions.map(s => {
     const selected = s.session_id === state.selectedSessionId ? "is-selected" : "";
     const sessionStats = s.stats?.session ?? {};
     const dur = fmtMs(sessionStats.duration_ms);
@@ -1325,6 +1438,42 @@ function wireBulkUpload() {
   });
 }
 
+function wireSessionFilters() {
+  const genderEl = $("#sessionFilterGender");
+  const occupationEl = $("#sessionFilterOccupation");
+  const nationalityEl = $("#sessionFilterNationality");
+  const ageMinEl = $("#sessionFilterAgeMin");
+  const ageMaxEl = $("#sessionFilterAgeMax");
+  const clearBtn = $("#clearSessionFiltersBtn");
+
+  if (!genderEl || !occupationEl || !nationalityEl || !ageMinEl || !ageMaxEl || !clearBtn) return;
+
+  const updateAndRender = () => {
+    state.sessionFilters.gender = genderEl.value;
+    state.sessionFilters.occupation = occupationEl.value;
+    state.sessionFilters.nationality = nationalityEl.value;
+    state.sessionFilters.ageMin = ageMinEl.value;
+    state.sessionFilters.ageMax = ageMaxEl.value;
+    renderSessionsList();
+  };
+
+  genderEl.addEventListener("change", updateAndRender);
+  occupationEl.addEventListener("change", updateAndRender);
+  nationalityEl.addEventListener("change", updateAndRender);
+  ageMinEl.addEventListener("input", updateAndRender);
+  ageMaxEl.addEventListener("input", updateAndRender);
+
+  clearBtn.addEventListener("click", () => {
+    state.sessionFilters = {
+      gender: "",
+      ageMin: "",
+      ageMax: "",
+      occupation: "",
+      nationality: "",
+    };
+    renderSessionsList();
+  });
+}
 
 // ===== Init =====
 async function init() {
@@ -1332,6 +1481,7 @@ async function init() {
   wireModal();
   wireUpload();
   wireBulkUpload();
+  wireSessionFilters();
 
   try {
     await refreshSessions();

@@ -168,6 +168,46 @@ p {
   margin-bottom: 12px;
 }
 
+.filter-panel {
+  display: grid;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.filter-field {
+  display: grid;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.filter-field input,
+.filter-field select {
+  border: 1px solid rgba(34, 48, 74, .85);
+  border-radius: 10px;
+  background: rgba(7, 10, 20, .35);
+  color: var(--text);
+  padding: 8px 10px;
+  font-size: 14px;
+}
+
+.filter-field input::placeholder {
+  color: rgba(159, 169, 195, .7);
+}
+
+.filter-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
 .card-foot {
   margin-top: 12px;
   padding-top: 12px;
@@ -438,4 +478,3 @@ p {
   justify-content: flex-end;
   gap: 10px;
 }
-
