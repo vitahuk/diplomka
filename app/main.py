@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi import Body
@@ -97,7 +97,10 @@ def _sanitize_filename_component(value: str) -> str:
 # =========================
 
 @app.post("/api/upload")
-async def upload_csv(file: UploadFile = File(...)):
+async def upload_csv(
+    file: UploadFile = File(...),
+    test_id: str = Form("TEST"),
+):
     if not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="Nahraj prosím CSV soubor.")
 
@@ -140,6 +143,7 @@ async def upload_csv(file: UploadFile = File(...)):
     # store metadata (MVP: in-memory)
     session_meta = SessionData(
         session_id=parsed_session.session_id,
+        test_id=test_id or "TEST",
         file_path=str(dst),
         user_id=parsed_session.user_id,
         task=primary_task,   # legacy (keep for now)
@@ -150,13 +154,17 @@ async def upload_csv(file: UploadFile = File(...)):
     return {
         "session_id": parsed_session.session_id,
         "user_id": parsed_session.user_id,
+        "test_id": test_id or "TEST",
         "task": primary_task,  # legacy
         "tasks": tasks,        # list of tasks for UI
         "stats": stats,        # { session:..., tasks:{...} }
     }
 
 @app.post("/api/upload/bulk")
-async def upload_bulk_csv(file: UploadFile = File(...)):
+async def upload_bulk_csv(
+    file: UploadFile = File(...),
+    test_id: str = Form("TEST"),
+):
     if not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="Nahraj prosím CSV soubor.")
 
@@ -220,6 +228,7 @@ async def upload_bulk_csv(file: UploadFile = File(...)):
 
             session_meta = SessionData(
                 session_id=parsed_session.session_id,
+                test_id=test_id or "TEST",
                 file_path=str(user_path),
                 user_id=parsed_session.user_id,
                 task=primary_task,
@@ -229,6 +238,7 @@ async def upload_bulk_csv(file: UploadFile = File(...)):
 
             sessions_out.append({
                 "session_id": parsed_session.session_id,
+                "test_id": test_id or "TEST",
                 "user_id": parsed_session.user_id,
                 "task": primary_task,
                 "tasks": tasks,
@@ -257,6 +267,7 @@ def list_sessions():
 
         out.append({
             "session_id": s.session_id,
+            "test_id": getattr(s, "test_id", "TEST") or "TEST",
             "user_id": s.user_id,
             "task": s.task,      # legacy
             "tasks": tasks,      # new
@@ -279,6 +290,7 @@ def get_session(session_id: str):
 
     return {
         "session_id": s.session_id,
+        "test_id": getattr(s, "test_id", "TEST") or "TEST",
         "user_id": s.user_id,
         "task": s.task,      # legacy
         "tasks": tasks,      # new

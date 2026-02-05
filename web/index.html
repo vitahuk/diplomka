@@ -29,14 +29,14 @@
       </div>
 
       <div class="topbar-right">
-        <label class="upload-chip" title="Nahraj CSV (session)">
-          <input id="csvInput" type="file" accept=".csv" />
-          <span>+ Nahrát CSV (session)</span>
-        </label>
-        <label class="upload-chip" title="Nahraj hromadné CSV">
-          <input id="bulkCsvInput" type="file" accept=".csv" />
-          <span>+ Nahrát hromadné CSV</span>
-        </label>
+        <button class="upload-chip" id="uploadSingleBtn" type="button" title="Nahraj CSV (session)">
+          + Nahrát CSV (session)
+        </button>
+        <button class="upload-chip" id="uploadBulkBtn" type="button" title="Nahraj hromadné CSV">
+          + Nahrát hromadné CSV
+        </button>
+        <input id="csvInput" type="file" accept=".csv" hidden />
+        <input id="bulkCsvInput" type="file" accept=".csv" hidden />
       </div>
     </header>
 
@@ -49,8 +49,7 @@
           <div>
             <h1>Nástěnka</h1>
             <p class="muted">
-              Nejprve vyber uživatelský test. Nyní existuje jen výchozí <b>TEST</b>.
-              Později se sem budou načítat testy z databáze.
+              Nejprve vyber uživatelský test. Testy si můžeš přidat ručně a přepínat mezi nimi.
             </p>
           </div>
         </div>
@@ -59,23 +58,14 @@
           <!-- LEFT: TEST LIST -->
           <section class="card">
             <div class="card-head">
-              <h2>Uživatelské testy</h2>
+              <div class="row" style="align-items:center;">
+                <h2>Uživatelské testy</h2>
+                <button class="btn btn-ghost" id="addTestBtn" type="button">+ Přidat test</button>
+              </div>
               <div class="muted small">Kliknutím vybereš test. Tlačítkem pokračuješ na seznam sessions.</div>
             </div>
 
-            <div class="list" id="testsList">
-              <div class="list-item is-selected" data-test="TEST">
-                <div class="row">
-                  <div class="title">TEST</div>
-                  <span class="pill">default</span>
-                </div>
-                <div class="muted small">Výchozí test – zatím lokální práce se sessions (CSV).</div>
-                <div class="row actions">
-                  <button class="btn" id="openSettingsBtn" type="button">Nastavení</button>
-                  <button class="btn" id="openTestBtn" type="button">Otevřít test</button>
-                </div>
-              </div>
-            </div>
+            <div class="list" id="testsList"></div>
 
             <div class="hint">
               <div class="hint-title">Poznámka</div>
@@ -347,10 +337,36 @@
         </div>
       </div>
     </div>
+    
+    <div class="modal hidden" id="uploadTestModal" role="dialog" aria-modal="true" aria-labelledby="uploadTestTitle">
+      <div class="modal-backdrop" id="uploadTestModalBackdrop"></div>
+
+      <div class="modal-card">
+        <div class="modal-head">
+          <div>
+            <div class="modal-title" id="uploadTestTitle">Vyber test pro CSV</div>
+            <div class="muted small">CSV se nahraje pouze do zvoleného testu.</div>
+          </div>
+          <button class="icon-btn" id="closeUploadTestBtn" type="button" aria-label="Zavřít">✕</button>
+        </div>
+
+        <div class="modal-body">
+          <label class="filter-field" style="gap:6px;">
+            <span>Test</span>
+            <select id="uploadTestSelect"></select>
+          </label>
+        </div>
+
+        <div class="modal-foot">
+          <button class="btn btn-ghost" id="cancelUploadTestBtn" type="button">Zrušit</button>
+          <button class="btn" id="confirmUploadTestBtn" type="button">Pokračovat</button>
+        </div>
+      </div>
+    </div>
 
   </div>
 
-  <script src="/static/app.js?v=5"></script>
+  <script src="/static/app.js?v=7"></script>
 </body>
 
 </html>

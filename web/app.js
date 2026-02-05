@@ -52,6 +52,10 @@ function isCoordinateLike(s) {
   return /^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/.test(String(s).trim());
 }
 
+const TESTS_STORAGE_KEY = "maptrack_tests";
+const SELECTED_TEST_STORAGE_KEY = "maptrack_selected_test";
+
+
 // ===== App State =====
 const state = {
   selectedTestId: "TEST",
@@ -59,6 +63,8 @@ const state = {
   selectedSession: null,
   selectedTaskId: null,
   sessions: [],
+  tests: [],
+  pendingUpload: null,
   sessionFilters: {
     gender: "",
     ageMin: "",
@@ -71,6 +77,75 @@ const state = {
   correctAnswers: {},
 };
 
+function normalizeTestId(value) {
+  const trimmed = String(value ?? "").trim();
+  return trimmed ? trimmed : null;
+}
+
+function loadTestsFromStorage() {
+  let tests = [];
+  try {
+    const raw = localStorage.getItem(TESTS_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (Array.isArray(parsed)) {
+      tests = parsed.map(normalizeTestId).filter(Boolean);
+    }
+  } catch {
+    tests = [];
+  }
+
+  if (!tests.length) tests = ["TEST"];
+  tests = Array.from(new Set(tests));
+  saveTestsToStorage(tests);
+  return tests;
+}
+
+function saveTestsToStorage(tests) {
+  try {
+    localStorage.setItem(TESTS_STORAGE_KEY, JSON.stringify(tests));
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadSelectedTestFromStorage(tests) {
+  try {
+    const raw = localStorage.getItem(SELECTED_TEST_STORAGE_KEY);
+    const selected = normalizeTestId(raw);
+    if (selected && tests.includes(selected)) return selected;
+  } catch {
+    /* ignore */
+  }
+  return tests[0] ?? "TEST";
+}
+
+function saveSelectedTestToStorage(testId) {
+  try {
+    localStorage.setItem(SELECTED_TEST_STORAGE_KEY, testId);
+  } catch {
+    /* ignore */
+  }
+}
+
+function syncTestsWithSessions(sessions) {
+  const seen = new Set(state.tests);
+  sessions.forEach((s) => {
+    const testId = normalizeTestId(s.test_id) ?? "TEST";
+    if (!seen.has(testId)) {
+      seen.add(testId);
+      state.tests.push(testId);
+    }
+  });
+  state.tests = Array.from(new Set(state.tests));
+  saveTestsToStorage(state.tests);
+}
+
+function getSessionsForSelectedTest() {
+  const testId = state.selectedTestId ?? "TEST";
+  return state.sessions.filter((s) => (s.test_id ?? "TEST") === testId);
+}
+
+
 // ===== API =====
 async function apiGet(path) {
   const res = await fetch(path);
@@ -82,9 +157,10 @@ async function apiGet(path) {
   return res.json();
 }
 
-async function apiUpload(file) {
+async function apiUpload(file, testId) {
   const fd = new FormData();
   fd.append("file", file);
+  fd.append("test_id", testId);
   const res = await fetch("/api/upload", { method: "POST", body: fd });
   if (!res.ok) {
     let err = {};
@@ -94,9 +170,10 @@ async function apiUpload(file) {
   return res.json();
 }
 
-async function apiUploadBulk(file) {
+async function apiUploadBulk(file, testId) {
   const fd = new FormData();
   fd.append("file", file);
+  fd.append("test_id", testId);
   const res = await fetch("/api/upload/bulk", { method: "POST", body: fd });
   if (!res.ok) {
     let err = {};
@@ -200,11 +277,69 @@ function computeAggByTask(sessions) {
   return out;
 }
 
+function renderTestsList() {
+  const listEl = $("#testsList");
+  if (!listEl) return;
+
+  if (!state.tests.length) {
+    listEl.innerHTML = `
+      <div class="empty">
+        <div class="empty-title">Zatím žádné testy</div>
+        <div class="muted small">Klikni na „Přidat test“ a vytvoř nový uživatelský test.</div>
+      </div>
+    `;
+    return;
+  }
+
+  listEl.innerHTML = state.tests.map((testId) => {
+    const selected = testId === state.selectedTestId ? "is-selected" : "";
+    return `
+      <div class="list-item ${selected}" data-test="${escapeHtml(testId)}">
+        <div class="row">
+          <div class="title">${escapeHtml(testId)}</div>
+        </div>
+        <div class="muted small">Test pro práci se sessions a nastavením správných odpovědí.</div>
+        <div class="row actions">
+          <button class="btn btn-ghost" data-action="settings" type="button">Nastavení</button>
+          <button class="btn" data-action="open" type="button">Otevřít test</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  $$("#testsList .list-item").forEach(item => {
+    item.addEventListener("click", () => {
+      selectTest(item.dataset.test);
+    });
+  });
+
+  $$("#testsList [data-action]").forEach(btn => {
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const action = btn.dataset.action;
+      const testId = btn.closest(".list-item")?.dataset.test;
+      if (!testId) return;
+
+      selectTest(testId);
+
+      if (action === "settings") {
+        setPage("settings");
+        await loadAnswersForSelectedTest();
+        renderSettingsPage();
+      } else if (action === "open") {
+        setPage("individual");
+        renderSessionsList();
+        renderSessionMetrics();
+      }
+    });
+  });
+}
+
 function renderTestAggMetrics() {
   const el = $("#testAggMetrics");
   if (!el) return;
 
-  const sessions = state.sessions;
+  const sessions = getSessionsForSelectedTest();
 
   if (!sessions.length) {
     el.innerHTML = `
@@ -273,7 +408,7 @@ function renderSessionFilterControls() {
 
   if (!genderEl || !occupationEl || !nationalityEl || !ageMinEl || !ageMaxEl || !userIdEl) return;
 
-  const options = getSessionFilterOptions(state.sessions);
+  const options = getSessionFilterOptions(getSessionsForSelectedTest());
   const makeOptions = (values, emptyLabel) => {
     const base = [`<option value="">${escapeHtml(emptyLabel)}</option>`];
     return base.concat(values.map(value => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`));
@@ -326,7 +461,7 @@ function renderSessionsList() {
   const listEl = $("#sessionsList");
   if (!listEl) return;
 
-  const sessions = state.sessions;
+  const sessions = getSessionsForSelectedTest();
   renderSessionFilterControls();
   const summaryEl = $("#sessionFilterSummary");
 
@@ -425,9 +560,9 @@ function renderSessionMetrics() {
 
 // ===== Settings page =====
 function getAllTasksForSelectedTest() {
-  // MVP: sessions nejsou asociované s testId, takže bereme všechny tasks z nahraných sessions
+  const sessions = getSessionsForSelectedTest();
   const set = new Set();
-  for (const s of state.sessions) {
+  for (const s of sessions) {
     const taskIds = Array.isArray(s.tasks) && s.tasks.length ? s.tasks : [s.task ?? "unknown"];
     for (const t of taskIds) set.add(String(t));
   }
@@ -1257,13 +1392,28 @@ function updateBreadcrumbs() {
 
 function selectTest(testId) {
   state.selectedTestId = testId;
+  saveSelectedTestToStorage(testId);
   updateBreadcrumbs();
+
+const sessionsForTest = getSessionsForSelectedTest();
+  if (state.selectedSessionId && !sessionsForTest.some(s => s.session_id === state.selectedSessionId)) {
+    state.selectedSessionId = null;
+    state.selectedSession = null;
+  }
+  
 
   $$("#testsList .list-item").forEach(item => {
     item.classList.toggle("is-selected", item.dataset.test === testId);
   });
 
   renderTestAggMetrics();
+  renderSessionsList();
+  renderSessionMetrics();
+  renderTasksList();
+
+  if (!$("#view-settings")?.classList.contains("hidden")) {
+    loadAnswersForSelectedTest().then(() => renderSettingsPage());
+  }
 }
 
 function selectSession(sessionId) {
@@ -1282,6 +1432,8 @@ function selectSession(sessionId) {
 async function refreshSessions() {
   const data = await apiGet("/api/sessions");
   state.sessions = data.sessions ?? [];
+  syncTestsWithSessions(state.sessions);
+  renderTestsList();
 
   if (state.selectedSessionId && !state.sessions.some(s => s.session_id === state.selectedSessionId)) {
     state.selectedSessionId = null;
@@ -1293,12 +1445,6 @@ async function refreshSessions() {
 
 // ===== Events wiring =====
 function wireNavButtons() {
-  $("#openTestBtn")?.addEventListener("click", () => {
-    setPage("individual");
-    renderSessionsList();
-    renderSessionMetrics();
-  });
-
   $("#backToTestsBtn")?.addEventListener("click", () => {
     setPage("dashboard");
     selectTest(state.selectedTestId ?? "TEST");
@@ -1316,12 +1462,6 @@ function wireNavButtons() {
     renderSessionMetrics();
   });
 
-  $("#openSettingsBtn")?.addEventListener("click", async () => {
-    setPage("settings");
-    await loadAnswersForSelectedTest();
-    renderSettingsPage();
-  });
-
   $("#backFromSettingsBtn")?.addEventListener("click", () => {
     setPage("dashboard");
     selectTest(state.selectedTestId ?? "TEST");
@@ -1335,6 +1475,23 @@ function wireNavButtons() {
   // NEW: Timeline button (on "Úlohy v session" page, right column)
   $("#openTimelineBtn")?.addEventListener("click", () => {
     openTimelineModal();
+  });
+}
+
+function wireTestControls() {
+  $("#addTestBtn")?.addEventListener("click", () => {
+    const raw = window.prompt("Zadej název nového testu:");
+    const testId = normalizeTestId(raw);
+    if (!testId) return;
+
+    if (!state.tests.includes(testId)) {
+      state.tests.push(testId);
+      state.tests = Array.from(new Set(state.tests));
+      saveTestsToStorage(state.tests);
+      renderTestsList();
+    }
+
+    selectTest(testId);
   });
 }
 
@@ -1355,6 +1512,56 @@ function wireModal() {
 
       const modal2 = $("#timelineModal");
       if (modal2 && !modal2.classList.contains("hidden")) closeTimelineModal();
+
+
+      const modal3 = $("#uploadTestModal");
+      if (modal3 && !modal3.classList.contains("hidden")) closeUploadTestModal();
+    }
+  });
+}
+
+function openUploadTestModal(kind) {
+  const modal = $("#uploadTestModal");
+  const select = $("#uploadTestSelect");
+  if (!modal || !select) return;
+
+  select.innerHTML = state.tests.map((testId) => `
+    <option value="${escapeHtml(testId)}">${escapeHtml(testId)}</option>
+  `).join("");
+
+  select.value = state.selectedTestId ?? state.tests[0] ?? "TEST";
+  modal.dataset.kind = kind;
+  show(modal);
+}
+
+function closeUploadTestModal() {
+  hide($("#uploadTestModal"));
+  const modal = $("#uploadTestModal");
+  if (modal) delete modal.dataset.kind;
+}
+
+function wireUploadTestModal() {
+  $("#uploadSingleBtn")?.addEventListener("click", () => openUploadTestModal("single"));
+  $("#uploadBulkBtn")?.addEventListener("click", () => openUploadTestModal("bulk"));
+
+  $("#closeUploadTestBtn")?.addEventListener("click", closeUploadTestModal);
+  $("#cancelUploadTestBtn")?.addEventListener("click", closeUploadTestModal);
+  $("#uploadTestModalBackdrop")?.addEventListener("click", closeUploadTestModal);
+
+  $("#confirmUploadTestBtn")?.addEventListener("click", () => {
+    const modal = $("#uploadTestModal");
+    const select = $("#uploadTestSelect");
+    if (!modal || !select) return;
+
+    const testId = normalizeTestId(select.value) ?? "TEST";
+    const kind = modal.dataset.kind;
+    state.pendingUpload = { kind, testId };
+    closeUploadTestModal();
+
+    if (kind === "bulk") {
+      $("#bulkCsvInput")?.click();
+    } else {
+      $("#csvInput")?.click();
     }
   });
 }
@@ -1367,11 +1574,16 @@ function wireUpload() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const testId = state.pendingUpload?.kind === "single"
+      ? state.pendingUpload?.testId
+      : (state.selectedTestId ?? "TEST");
+    state.pendingUpload = null;
+    
     const statusEl = $("#uploadStatus");
     if (statusEl) statusEl.textContent = `Nahrávám: ${file.name}…`;
 
     try {
-      const out = await apiUpload(file);
+      const out = await apiUpload(file, testId ?? "TEST");
       if (statusEl) statusEl.textContent = `Nahráno: ${out.session_id} (user: ${out.user_id ?? "—"})`;
 
       await refreshSessions();
@@ -1412,11 +1624,16 @@ function wireBulkUpload() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    const testId = state.pendingUpload?.kind === "bulk"
+      ? state.pendingUpload?.testId
+      : (state.selectedTestId ?? "TEST");
+    state.pendingUpload = null;
+
     const statusEl = $("#uploadStatus");
     if (statusEl) statusEl.textContent = `Nahrávám hromadné CSV: ${file.name}…`;
 
     try {
-      const out = await apiUploadBulk(file);
+      const out = await apiUploadBulk(file, testId ?? "TEST");
       if (statusEl) statusEl.textContent = `Nahráno hromadné CSV: ${out.count ?? 0} sessions`;
 
       await refreshSessions();
@@ -1492,10 +1709,16 @@ function wireSessionFilters() {
 // ===== Init =====
 async function init() {
   wireNavButtons();
+  wireTestControls();
   wireModal();
+  wireUploadTestModal();
   wireUpload();
   wireBulkUpload();
   wireSessionFilters();
+
+  state.tests = loadTestsFromStorage();
+  state.selectedTestId = loadSelectedTestFromStorage(state.tests);
+  renderTestsList();
 
   try {
     await refreshSessions();
@@ -1504,7 +1727,7 @@ async function init() {
     if (statusEl) statusEl.textContent = `Backend nedostupný: ${e?.message ?? e}`;
   }
 
-  selectTest("TEST");
+  selectTest(state.selectedTestId ?? "TEST");
   setPage("dashboard");
   updateBreadcrumbs();
   renderTestAggMetrics();

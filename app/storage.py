@@ -17,6 +17,7 @@ _TEST_ANSWERS_LOCK = threading.Lock()
 @dataclass
 class SessionData:
     session_id: str
+    test_id: str
     file_path: str
     user_id: Optional[str]
     task: Optional[str]
