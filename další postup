@@ -1,21 +1,13 @@
 UI:
 
-Nástěnka:
- - odstranit základní metriky, místo toho zobrazit celkový počet respondentů
- - u každého testu přidat tlačítko Nastavení, které otevře novou stránku kde zadám správné odpovědi. Odpovědi se uloží do Jsonu, potom do dtb
 
-Sessions:
-  - filtr + možnost zaškrtávat políčka pro následnou agregaci
-  - filtr: dropdown s možností vybrat více hodnot, u věku min-max volba
-  - tlačítka pro zrušení všech filtrů a zaškrtnutí
+
 
 Prostorová data:
  - 2D trajektorie každé session, barevně typ pohybu?
  
-Časová osa eventů
-Rozepsat soc-demo info každé session
 
-Agregace
+
 
 po konzultaci:
 - nahrávání combined CSV kde je více uživatelů - druhé tlačítko pro nahrání  --- hotovo
@@ -38,3 +30,4 @@ další konzultace:
 
 
 export CSV agregovaných statistik
+agregace - porovnání skupin na úrovni úloh

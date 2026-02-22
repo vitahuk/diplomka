@@ -5,7 +5,7 @@ from typing import Any, Dict, Optional, List, Tuple
 
 # Navazuje na tvůj parser
 from app.parsing.maptrack_csv import ParsedSession, TaskStream
-
+from app.normalization.nationality import normalize_nationality
 
 SOC_DEMO_KEYS = ["age", "gender", "occupation", "education", "nationality"]
 
@@ -52,6 +52,9 @@ def extract_soc_demo(
     if isinstance(soc_from_session, dict):
         for k in SOC_DEMO_KEYS:
             v = soc_from_session.get(k)
+            if k == "nationality":
+                out[k] = normalize_nationality(v)
+                continue
             if v is None:
                 out[k] = None
             else:
@@ -61,7 +64,10 @@ def extract_soc_demo(
 
     # 2) raw_row
     for k in SOC_DEMO_KEYS:
-        out[k] = _first_nonempty(raw_row, k)
+        if k == "nationality":
+            out[k] = normalize_nationality(_first_nonempty(raw_row, k))
+        else:
+            out[k] = _first_nonempty(raw_row, k)
 
     return out
 

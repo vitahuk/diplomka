@@ -25,6 +25,7 @@ from app.parsing.maptrack_csv import (
     infer_session_id_from_filename,
     validate_maptrack_df,
 )
+from app.parsing.column_aliases import SOC_DEMO_COLUMN_ALIASES, resolve_column_aliases, resolve_single_column
 from app.analysis.metrics import (
     compute_session_metrics,
     compute_all_task_metrics,
@@ -65,11 +66,16 @@ def _read_soc_demo_row(csv_path: Path) -> Dict[str, Any]:
     except Exception:
         return {}
 
-    row = df0.iloc[0].to_dict() if len(df0) else {}
-    out = {}
+    if df0.empty:
+        return {}
+
+    row = df0.iloc[0].to_dict()
+    resolved = resolve_column_aliases(df0.columns, SOC_DEMO_COLUMN_ALIASES)
+    out: Dict[str, Any] = {}
     for k in SOC_DEMO_KEYS:
-        if k in row:
-            out[k] = row.get(k)
+        source_col = resolved.get(k)
+        if source_col:
+            out[k] = row.get(source_col)
     return out
 
 def _normalize_user_id(value: Any) -> Optional[str]:
@@ -81,12 +87,20 @@ def _normalize_user_id(value: Any) -> Optional[str]:
 
 def _read_soc_demo_rows_by_user(df: pd.DataFrame, user_col: str) -> Dict[str, Dict[str, Any]]:
     out: Dict[str, Dict[str, Any]] = {}
+    resolved = resolve_column_aliases(df.columns, SOC_DEMO_COLUMN_ALIASES)
+
     for _, row in df.iterrows():
         user_id = _normalize_user_id(row.get(user_col))
         if not user_id or user_id in out:
             continue
+
         row_dict = row.to_dict()
-        out[user_id] = {k: row_dict.get(k) for k in SOC_DEMO_KEYS if k in row_dict}
+        soc: Dict[str, Any] = {}
+        for k in SOC_DEMO_KEYS:
+            source_col = resolved.get(k)
+            if source_col:
+                soc[k] = row_dict.get(source_col)
+        out[user_id] = soc
     return out
 
 
@@ -181,7 +195,9 @@ async def upload_bulk_csv(
 
     try:
         df = pd.read_csv(dst, low_memory=False)
-        df["age"] = pd.to_numeric(df["age"], errors="coerce")
+        age_col = resolve_single_column(df.columns, "age", SOC_DEMO_COLUMN_ALIASES["age"])
+        if age_col:
+            df[age_col] = pd.to_numeric(df[age_col], errors="coerce")
         validate_maptrack_df(df)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Zpracování CSV selhalo: {e}")
