@@ -422,29 +422,6 @@ p {
   color: var(--muted);
 }
 
-.leaflet-map {
-  width: 100%;
-  height: 260px;
-  border: 1px solid rgba(34, 48, 74, .85);
-  border-radius: 14px;
-  overflow: hidden;
-  background: rgba(7, 10, 20, .35);
-}
-
-.leaflet-map.is-large {
-  height: min(70vh, 680px);
-}
-
-@media (max-width: 980px) {
-  .leaflet-map {
-    height: 220px;
-  }
-
-  .leaflet-map.is-large {
-    height: min(62vh, 520px);
-  }
-}
-
 /* Modal */
 .modal.hidden {
   display: none;

@@ -214,10 +214,6 @@ async function apiGetSessionEvents(sessionId) {
   return apiGet(`/api/sessions/${encodeURIComponent(sessionId)}/events`);
 }
 
-async function apiGetSessionTrack(sessionId) {
-  return apiGet(`/api/sessions/${encodeURIComponent(sessionId)}/events`);
-}
-
 // ===== Rendering: metrics blocks =====
 function renderMetricGrid(metricsObj, containerEl) {
   if (!containerEl) return;
@@ -726,8 +722,6 @@ function renderTasksList() {
       openTaskModal(taskId);
     });
   });
-
-  loadAndRenderSessionMaps();
 }
 
 // ===== Modal (task metrics pop-up) =====
@@ -1384,193 +1378,6 @@ function closeTimelineModal() {
   hide($("#timelineModal"));
 }
 
-function parseWgs84Point(detail) {
-  if (!isCoordinateLike(detail)) return null;
-  const [latStr, lonStr] = String(detail).split(",");
-  const lat = Number(latStr?.trim());
-  const lon = Number(lonStr?.trim());
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
-  return [lat, lon];
-}
-
-function extractTrackData(eventsPayload) {
-  const selectedUser = String(state.selectedSession?.user_id ?? "").trim() || null;
-  const allowed = new Set(["movestart", "moveend", "popupopen", "popupclose", "popupopen:name"]);
-
-  const events = Array.isArray(eventsPayload?.events) ? eventsPayload.events.slice() : [];
-  events.sort((a, b) => Number(a?.timestamp ?? 0) - Number(b?.timestamp ?? 0));
-
-  const moveEndPoints = [];
-  const popupPoints = [];
-  let pendingPopupName = null;
-
-  for (const e of events) {
-    const eventUser = String(e?.event_user_id ?? "").trim() || null;
-    if (selectedUser && eventUser && eventUser !== selectedUser) continue;
-
-    const name = String(e?.event_name ?? "").trim();
-    if (!allowed.has(name)) continue;
-
-    if (name === "popupopen:name") {
-      pendingPopupName = String(e?.event_detail ?? "").trim() || null;
-      continue;
-    }
-
-    const coords = parseWgs84Point(e?.event_detail);
-    if (!coords) continue;
-
-    const point = {
-      coords,
-      timestamp: Number(e?.timestamp ?? 0),
-    };
-
-    if (name === "moveend") {
-      moveEndPoints.push(point);
-    }
-
-    if (name === "popupopen") {
-      popupPoints.push({
-        ...point,
-        popupName: pendingPopupName || "(bez popupopen:name)",
-      });
-      pendingPopupName = null;
-    }
-  }
-
-  moveEndPoints.sort((a, b) => a.timestamp - b.timestamp);
-  popupPoints.sort((a, b) => a.timestamp - b.timestamp);
-
-  return { moveEndPoints, popupPoints };
-}
-
-function createBaseLayers() {
-  const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-  });
-
-  const carto = L.tileLayer("https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png", {
-    maxZoom: 20,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-  });
-
-  const topo = L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
-    maxZoom: 17,
-    attribution: 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="https://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
-  });
-
-  return {
-    "OpenStreetMap": osm,
-    "Carto Light": carto,
-    "OpenTopoMap": topo,
-  };
-}
-
-function renderSessionTrackMap(containerId, eventsPayload) {
-  const el = document.getElementById(containerId);
-  if (!el) return;
-
-  if (typeof L === "undefined") {
-    el.innerHTML = `
-      <div class="empty" style="margin:12px;">
-        <div class="empty-title">Leaflet se nenačetl</div>
-        <div class="muted small">Mapa nelze vykreslit, protože skript Leaflet není dostupný (typicky blokovaný externí CDN).</div>
-      </div>
-    `;
-    return;
-  }
-
-  if (el._leaflet_id) {
-    el._leaflet_map_instance?.remove();
-    el._leaflet_map_instance = null;
-  }
-  el.innerHTML = "";
-
-  const map = L.map(el, { zoomControl: true });
-  el._leaflet_map_instance = map;
-
-  const baseLayers = createBaseLayers();
-  const defaultLayer = baseLayers["OpenStreetMap"];
-  defaultLayer.addTo(map);
-  L.control.layers(baseLayers, null, { collapsed: false }).addTo(map);
-  L.control.scale({ imperial: false }).addTo(map);
-
-  const { moveEndPoints, popupPoints } = extractTrackData(eventsPayload);
-
-  if (!moveEndPoints.length && !popupPoints.length) {
-    map.setView([49.8, 15.5], 7);
-    return;
-  }
-
-  if (moveEndPoints.length) {
-    const latlngs = moveEndPoints.map((p) => p.coords);
-    L.polyline(latlngs, { color: "#4C78A8", weight: 4, opacity: 0.9 }).addTo(map);
-    moveEndPoints.forEach((p, i) => {
-      L.circleMarker(p.coords, {
-        radius: 4,
-        color: "#4C78A8",
-        fillColor: "#4C78A8",
-        fillOpacity: 0.85,
-        weight: 1,
-      }).bindTooltip(`moveend #${i + 1}`).addTo(map);
-    });
-  }
-
-  popupPoints.forEach((p) => {
-    L.circleMarker(p.coords, {
-      radius: 6,
-      color: "#D37295",
-      fillColor: "#D37295",
-      fillOpacity: 0.95,
-      weight: 1,
-    }).bindTooltip(escapeHtml(p.popupName), { direction: "top" }).addTo(map);
-  });
-
-  const boundsPts = moveEndPoints.concat(popupPoints).map((p) => p.coords);
-  if (boundsPts.length === 1) {
-    map.setView(boundsPts[0], 16);
-  } else {
-    map.fitBounds(L.latLngBounds(boundsPts), { padding: [24, 24] });
-  }
-
-  setTimeout(() => map.invalidateSize(), 50);
-}
-
-async function loadAndRenderSessionMaps() {
-  const s = state.selectedSession;
-  const inline = document.getElementById("sessionMapInline");
-  if (!s?.session_id || !inline) return;
-
-  inline.innerHTML = "";
-
-  try {
-    const payload = await apiGetSessionTrack(s.session_id);
-    renderSessionTrackMap("sessionMapInline", payload);
-
-    const subtitle = document.getElementById("sessionMapModalSubtitle");
-    if (subtitle) subtitle.textContent = `Session: ${s.session_id} · user: ${s.user_id ?? "—"}`;
-
-    const modalEl = document.getElementById("sessionMapModalContainer");
-    if (modalEl && !document.getElementById("sessionMapModal")?.classList.contains("hidden")) {
-      renderSessionTrackMap("sessionMapModalContainer", payload);
-    }
-  } catch (e) {
-    inline.innerHTML = `<div class="muted small">Mapa se nepodařila načíst: ${escapeHtml(e?.message ?? e)}</div>`;
-  }
-}
-
-function openSessionMapModal() {
-  const modal = document.getElementById("sessionMapModal");
-  if (!modal) return;
-  show(modal);
-  loadAndRenderSessionMaps();
-}
-
-function closeSessionMapModal() {
-  hide(document.getElementById("sessionMapModal"));
-}
-
 // ===== Selection + Breadcrumbs =====
 function updateBreadcrumbs() {
   const testEl = $("#crumb-test");
@@ -1619,7 +1426,6 @@ function selectSession(sessionId) {
   });
 
   renderSessionMetrics();
-  loadAndRenderSessionMaps();
 }
 
 // ===== Loading data =====
@@ -1670,15 +1476,6 @@ function wireNavButtons() {
   $("#openTimelineBtn")?.addEventListener("click", () => {
     openTimelineModal();
   });
-
-  $("#openSessionMapBtn")?.addEventListener("click", () => {
-    openSessionMapModal();
-  });
-
-  const mapBtn = $("#openSessionMapBtn");
-  if (mapBtn && typeof L === "undefined") {
-    mapBtn.title = "Leaflet knihovna není dostupná";
-  }
 }
 
 function wireTestControls() {
@@ -1719,15 +1516,8 @@ function wireModal() {
 
       const modal3 = $("#uploadTestModal");
       if (modal3 && !modal3.classList.contains("hidden")) closeUploadTestModal();
-
-      const modal4 = $("#sessionMapModal");
-      if (modal4 && !modal4.classList.contains("hidden")) closeSessionMapModal();
     }
   });
-
-  $("#closeSessionMapBtn")?.addEventListener("click", closeSessionMapModal);
-  $("#closeSessionMapBtn2")?.addEventListener("click", closeSessionMapModal);
-  $("#sessionMapModalBackdrop")?.addEventListener("click", closeSessionMapModal);
 }
 
 function openUploadTestModal(kind) {

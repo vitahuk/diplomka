@@ -5,12 +5,6 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>MapTrack Analytics – MVP</title>
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
-    crossorigin=""
-  />
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 
@@ -274,13 +268,7 @@
                 </div>
               </div>
 
-              <div class="placeholder-box">
-                <div class="row" style="justify-content:space-between; align-items:center; gap:12px; margin-bottom:10px;">
-                  <div class="muted small">Mapa trajektorie uživatele v rámci session.</div>
-                  <button class="btn" id="openSessionMapBtn" type="button">Otevřít mapu</button>
-                </div>
-                <div id="sessionMapInline" class="leaflet-map"></div>
-              </div>
+              <div class="placeholder-box">Mapa (trajektorie + viewpointy)</div>
               <div class="placeholder-box">Soc-dem info</div>
             </div>
           </section>
@@ -316,28 +304,6 @@
         </div>
       </div>
     </div>
-
-    <div class="modal hidden" id="sessionMapModal" role="dialog" aria-modal="true" aria-labelledby="sessionMapModalTitle">
-      <div class="modal-backdrop" id="sessionMapModalBackdrop"></div>
-
-    <div class="modal-card" style="width:min(1200px, 94vw);">
-      <div class="modal-head">
-        <div>
-          <div class="modal-title" id="sessionMapModalTitle">Mapa trajektorie</div>
-          <div class="muted small" id="sessionMapModalSubtitle">—</div>
-        </div>
-        <button class="icon-btn" id="closeSessionMapBtn" type="button" aria-label="Zavřít">✕</button>
-      </div>
-
-      <div class="modal-body">
-        <div id="sessionMapModalContainer" class="leaflet-map is-large"></div>
-      </div>
-
-      <div class="modal-foot">
-        <button class="btn btn-ghost" id="closeSessionMapBtn2" type="button">Zavřít</button>
-      </div>
-    </div>
-  </div>
 
     <!-- NEW: TIMELINE MODAL -->
     <div class="modal hidden" id="timelineModal" role="dialog" aria-modal="true" aria-labelledby="timelineModalTitle">
@@ -400,14 +366,7 @@
 
   </div>
 
-  <script
-    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
-    crossorigin=""
-  ></script>
-
-  <script src="/static/app.js?v=9"></script>
-
+  <script src="/static/app.js?v=7"></script>
 </body>
 
 </html>
