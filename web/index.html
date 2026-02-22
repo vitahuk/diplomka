@@ -6,6 +6,12 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>MapTrack Analytics – MVP</title>
   <link rel="stylesheet" href="/static/styles.css" />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
 </head>
 
 <body>
@@ -329,7 +335,12 @@
                 </div>
               </div>
 
-              <div class="placeholder-box">Mapa (trajektorie + viewpointy)</div>
+              <div class="placeholder-box">
+                <div class="row" style="justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+                  <div class="muted small">Mapa (trajektorie + viewpointy)</div>
+                  <button class="btn" id="openMapModalBtn" type="button">Otevřít mapu</button>
+                </div>
+              </div>
               <div class="placeholder-box">Soc-dem info</div>
             </div>
           </section>
@@ -424,7 +435,74 @@
         </div>
       </div>
     </div>
+  </div>
 
+  <div class="modal hidden" id="sessionMapModal" role="dialog" aria-modal="true" aria-labelledby="sessionMapModalTitle">
+    <div class="modal-backdrop" id="sessionMapModalBackdrop"></div>
+    <div class="modal-card map-modal-card">
+      <div class="modal-head">
+        <div>
+          <div class="modal-title" id="sessionMapModalTitle">Mapa session (Leaflet)</div>
+          <div class="muted small" id="sessionMapModalSubtitle">Připraveno pro data ve WGS84.</div>
+        </div>
+        <button class="icon-btn" id="closeSessionMapBtn" type="button" aria-label="Zavřít">✕</button>
+      </div>
+
+      <div class="modal-body map-modal-body">
+        <div class="map-layout">
+          <section class="map-sidebar">
+            <div class="map-panel-title">Zobrazení vrstev</div>
+
+            <div class="map-option-grid">
+              <label class="map-option-row" for="mapShowPoints">
+                <input id="mapShowPoints" type="checkbox" checked />
+                <span>Zobrazit body</span>
+              </label>
+              <label class="map-option-row" for="mapShowTrajectory">
+                <input id="mapShowTrajectory" type="checkbox" checked />
+                <span>Zobrazit linii trajektorie</span>
+              </label>
+            </div>
+
+            <div class="map-option-grid">
+              <label class="filter-field" for="mapPointsColorInput">
+                <span>Barva bodů</span>
+                <input id="mapPointsColorInput" type="color" value="#4cc9f0" />
+              </label>
+              <label class="filter-field" for="mapLineColorInput">
+                <span>Barva linie</span>
+                <input id="mapLineColorInput" type="color" value="#f72585" />
+              </label>
+            </div>
+
+            <div class="map-panel-title" style="margin-top:8px;">Legenda (příprava)</div>
+            <div class="map-legend" id="sessionMapLegend">
+              <div class="map-legend-row">
+                <span class="map-legend-swatch" id="mapLegendPointSwatch"></span>
+                <span>Body (WGS84) – připraveno na budoucí data</span>
+              </div>
+              <div class="map-legend-row">
+                <span class="map-legend-line" id="mapLegendLineSwatch"></span>
+                <span>Trajektorie (LineString) – připraveno na budoucí data</span>
+              </div>
+            </div>
+
+            <div class="empty" id="mapDataPlaceholder">
+              <div class="empty-title">Zatím bez dat</div>
+              <div class="muted small">Výpočet a naplnění bodů/linie doplníme v další iteraci.</div>
+            </div>
+          </section>
+
+          <section class="map-canvas-wrap">
+            <div id="sessionLeafletMap" class="leaflet-map-canvas" aria-label="Interaktivní mapa session"></div>
+          </section>
+        </div>
+      </div>
+
+      <div class="modal-foot">
+        <button class="btn btn-ghost" id="closeSessionMapBtn2" type="button">Zavřít</button>
+      </div>
+    </div>
   </div>
 
   <div class="modal hidden" id="groupCreateModal" role="dialog" aria-modal="true" aria-labelledby="groupCreateTitle">
@@ -560,7 +638,12 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=16"></script>
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script src="/static/app.js?v=17"></script>
 </body>
 
 </html>

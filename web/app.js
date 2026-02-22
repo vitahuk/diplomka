@@ -97,6 +97,13 @@ const state = {
   },
   // answers cache: testId -> { taskId -> int }
   correctAnswers: {},
+  map: {
+    leafletMap: null,
+    baseLayers: null,
+    pointsLayer: null,
+    trajectoryLayer: null,
+    isInitialized: false,
+  },
 };
 
 function normalizeTestId(value) {
@@ -1488,6 +1495,159 @@ function closeTimelineModal() {
   hide($("#timelineModal"));
 }
 
+
+function getMapControlsState() {
+  return {
+    showPoints: $("#mapShowPoints")?.checked ?? true,
+    showTrajectory: $("#mapShowTrajectory")?.checked ?? true,
+    pointsColor: $("#mapPointsColorInput")?.value ?? "#4cc9f0",
+    lineColor: $("#mapLineColorInput")?.value ?? "#f72585",
+  };
+}
+
+function syncMapLegend() {
+  const controls = getMapControlsState();
+  const pointSwatch = $("#mapLegendPointSwatch");
+  const lineSwatch = $("#mapLegendLineSwatch");
+  if (pointSwatch) {
+    pointSwatch.style.background = controls.pointsColor;
+    pointSwatch.style.opacity = controls.showPoints ? "1" : ".35";
+  }
+  if (lineSwatch) {
+    lineSwatch.style.borderTopColor = controls.lineColor;
+    lineSwatch.style.opacity = controls.showTrajectory ? "1" : ".35";
+  }
+}
+
+function applyMapLayerStyles() {
+  const controls = getMapControlsState();
+  const pointsLayer = state.map.pointsLayer;
+  const trajectoryLayer = state.map.trajectoryLayer;
+
+  if (pointsLayer?.setStyle) {
+    pointsLayer.setStyle({
+      color: controls.pointsColor,
+      fillColor: controls.pointsColor,
+      fillOpacity: 0.9,
+      radius: 6,
+      weight: 1,
+    });
+  }
+
+  if (trajectoryLayer?.setStyle) {
+    trajectoryLayer.setStyle({
+      color: controls.lineColor,
+      weight: 4,
+      opacity: 0.9,
+    });
+  }
+
+  const map = state.map.leafletMap;
+  if (map && pointsLayer) {
+    const hasLayer = map.hasLayer(pointsLayer);
+    if (controls.showPoints && !hasLayer) map.addLayer(pointsLayer);
+    if (!controls.showPoints && hasLayer) map.removeLayer(pointsLayer);
+  }
+
+  if (map && trajectoryLayer) {
+    const hasLayer = map.hasLayer(trajectoryLayer);
+    if (controls.showTrajectory && !hasLayer) map.addLayer(trajectoryLayer);
+    if (!controls.showTrajectory && hasLayer) map.removeLayer(trajectoryLayer);
+  }
+
+  syncMapLegend();
+}
+
+function ensureSessionMapInitialized() {
+  if (state.map.isInitialized) return;
+  if (typeof L === "undefined") return;
+
+  const mapEl = $("#sessionLeafletMap");
+  if (!mapEl) return;
+
+  const leafletMap = L.map(mapEl, {
+    center: [49.8175, 15.473],
+    zoom: 7,
+    zoomControl: true,
+  });
+
+  const osmStandard = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 20,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  });
+
+  const cartoVoyager = L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+    maxZoom: 20,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  });
+
+  const opentopo = L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
+    maxZoom: 17,
+    attribution: 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="https://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
+  });
+
+  osmStandard.addTo(leafletMap);
+
+  const baseLayers = {
+    "OpenStreetMap": osmStandard,
+    "CARTO Voyager": cartoVoyager,
+    "OpenTopoMap": opentopo,
+  };
+
+  const pointsLayer = L.geoJSON({ type: "FeatureCollection", features: [] }, {
+    pointToLayer: (_feature, latlng) => L.circleMarker(latlng, {
+      radius: 6,
+      color: "#4cc9f0",
+      fillColor: "#4cc9f0",
+      fillOpacity: 0.9,
+      weight: 1,
+    }),
+  }).addTo(leafletMap);
+
+  const trajectoryLayer = L.geoJSON({ type: "FeatureCollection", features: [] }, {
+    style: {
+      color: "#f72585",
+      weight: 4,
+      opacity: 0.9,
+    },
+  }).addTo(leafletMap);
+
+  L.control.layers(baseLayers, {
+    "Body": pointsLayer,
+    "Trajektorie": trajectoryLayer,
+  }, { collapsed: false }).addTo(leafletMap);
+
+  state.map.leafletMap = leafletMap;
+  state.map.baseLayers = baseLayers;
+  state.map.pointsLayer = pointsLayer;
+  state.map.trajectoryLayer = trajectoryLayer;
+  state.map.isInitialized = true;
+
+  applyMapLayerStyles();
+}
+
+function openSessionMapModal() {
+  const subtitle = $("#sessionMapModalSubtitle");
+  const s = state.selectedSession;
+  if (subtitle) {
+    subtitle.textContent = s?.session_id
+      ? `Session: ${s.session_id} · user: ${s.user_id ?? "—"} · data: WGS84 (připraveno)`
+      : "Připraveno pro data ve WGS84.";
+  }
+
+  show($("#sessionMapModal"));
+  ensureSessionMapInitialized();
+  syncMapLegend();
+
+  if (state.map.leafletMap) {
+    setTimeout(() => state.map.leafletMap.invalidateSize(), 50);
+  }
+}
+
+function closeSessionMapModal() {
+  hide($("#sessionMapModal"));
+}
+
 async function refreshGroups() {
   const out = await apiListGroups(state.selectedTestId ?? "TEST");
   state.groups = out.groups ?? [];
@@ -2380,6 +2540,10 @@ function wireNavButtons() {
   $("#openTimelineBtn")?.addEventListener("click", () => {
     openTimelineModal();
   });
+
+  $("#openMapModalBtn")?.addEventListener("click", () => {
+    openSessionMapModal();
+  });
 }
 
 function wireTestControls() {
@@ -2419,6 +2583,23 @@ function wireModal() {
   $("#closeTimelineBtn2")?.addEventListener("click", closeTimelineModal);
   $("#timelineModalBackdrop")?.addEventListener("click", closeTimelineModal);
 
+  $("#closeSessionMapBtn")?.addEventListener("click", closeSessionMapModal);
+  $("#closeSessionMapBtn2")?.addEventListener("click", closeSessionMapModal);
+  $("#sessionMapModalBackdrop")?.addEventListener("click", closeSessionMapModal);
+
+  const mapControlIds = [
+    "#mapShowPoints",
+    "#mapShowTrajectory",
+    "#mapPointsColorInput",
+    "#mapLineColorInput",
+  ];
+  mapControlIds.forEach((sel) => {
+    const el = $(sel);
+    if (!el) return;
+    const evt = sel.includes("Color") ? "input" : "change";
+    el.addEventListener(evt, applyMapLayerStyles);
+  });
+
   $("#closeGroupsCompareBtn")?.addEventListener("click", closeGroupCompareModal);
   $("#closeGroupsCompareBtn2")?.addEventListener("click", closeGroupCompareModal);
   $("#groupsCompareBackdrop")?.addEventListener("click", closeGroupCompareModal);
@@ -2434,6 +2615,9 @@ function wireModal() {
 
       const modal3 = $("#uploadTestModal");
       if (modal3 && !modal3.classList.contains("hidden")) closeUploadTestModal();
+      
+      const modalMap = $("#sessionMapModal");
+      if (modalMap && !modalMap.classList.contains("hidden")) closeSessionMapModal();
 
       const modal4 = $("#groupCreateModal");
       if (modal4 && !modal4.classList.contains("hidden")) closeCreateGroupModal();
