@@ -26,3 +26,11 @@ po konzultaci:
 
 
 - v seznamu sessions (uživatelů), aby se vpravo sekce pohybovala s pohybem obrazovky
+
+
+další konzultace:
+- wordcloud pro psané odpovědi u agregace
+- agregace uživatelů a pak na úrovni úloh
+- prostorová data, možnost zvolit podklad když to půjde
+- device do metriky session
+- správné odpovědi = názvy polygonů, porovnávat ty stringy

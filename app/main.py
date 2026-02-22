@@ -178,7 +178,8 @@ async def upload_bulk_csv(
         raise HTTPException(status_code=500, detail=f"Uložení souboru selhalo: {e}")
 
     try:
-        df = pd.read_csv(dst)
+        df = pd.read_csv(dst, low_memory=False)
+        df["age"] = pd.to_numeric(df["age"], errors="coerce")
         validate_maptrack_df(df)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Zpracování CSV selhalo: {e}")
