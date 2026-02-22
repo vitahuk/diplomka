@@ -78,6 +78,14 @@ const state = {
   groupTaskCompareSort: { key: "avgDurationMs", direction: "desc" },
   isGroupUsersExpanded: false,
   groupEditSessionIds: [],
+  groupEditFilters: {
+    gender: "",
+    ageMin: "",
+    ageMax: "",
+    occupation: "",
+    nationality: "",
+    query: "",
+  },
   pendingUpload: null,
   sessionFilters: {
     gender: "",
@@ -495,12 +503,23 @@ function renderSessionFilterControls() {
 }
 
 function applySessionFilters(sessions) {
-  const genderFilter = normalizeFilterValue(state.sessionFilters.gender);
-  const occupationFilter = normalizeFilterValue(state.sessionFilters.occupation);
-  const nationalityFilter = normalizeFilterValue(state.sessionFilters.nationality);
-  const ageMin = parseOptionalNumber(state.sessionFilters.ageMin);
-  const ageMax = parseOptionalNumber(state.sessionFilters.ageMax);
-  const userIdQuery = normalizeSearchValue(state.sessionFilters.userIdQuery);
+  return applyGenericSessionFilters(sessions, {
+    gender: state.sessionFilters.gender,
+    occupation: state.sessionFilters.occupation,
+    nationality: state.sessionFilters.nationality,
+    ageMin: state.sessionFilters.ageMin,
+    ageMax: state.sessionFilters.ageMax,
+    query: state.sessionFilters.userIdQuery,
+  });
+}
+
+function applyGenericSessionFilters(sessions, filters = {}) {
+  const genderFilter = normalizeFilterValue(filters.gender);
+  const occupationFilter = normalizeFilterValue(filters.occupation);
+  const nationalityFilter = normalizeFilterValue(filters.nationality);
+  const ageMin = parseOptionalNumber(filters.ageMin);
+  const ageMax = parseOptionalNumber(filters.ageMax);
+  const query = normalizeSearchValue(filters.query);
 
   return sessions.filter((session) => {
     const soc = getSocDemo(session);
@@ -509,11 +528,12 @@ function applySessionFilters(sessions) {
     const nationality = normalizeFilterValue(soc.nationality);
     const age = parseOptionalNumber(soc.age);
     const userId = normalizeSearchValue(session.user_id);
+    const sessionId = normalizeSearchValue(session.session_id);
 
     if (genderFilter && genderFilter !== gender) return false;
     if (occupationFilter && occupationFilter !== occupation) return false;
     if (nationalityFilter && nationalityFilter !== nationality) return false;
-    if (userIdQuery && !userId.includes(userIdQuery)) return false;
+    if (query && !userId.includes(query) && !sessionId.includes(query)) return false;
 
     if (ageMin !== null || ageMax !== null) {
       if (age === null) return false;
@@ -1928,45 +1948,139 @@ async function saveCreatedGroup() {
   }
 }
 
+function renderGroupEditFilterControls(sessions) {
+  const genderEl = $("#groupEditFilterGender");
+  const occupationEl = $("#groupEditFilterOccupation");
+  const nationalityEl = $("#groupEditFilterNationality");
+  const ageMinEl = $("#groupEditFilterAgeMin");
+  const ageMaxEl = $("#groupEditFilterAgeMax");
+  const searchEl = $("#groupEditSearchInput");
+  if (!genderEl || !occupationEl || !nationalityEl || !ageMinEl || !ageMaxEl || !searchEl) return;
+
+  const options = getSessionFilterOptions(sessions);
+  const makeOptions = (values, emptyLabel) => {
+    const base = [`<option value="">${escapeHtml(emptyLabel)}</option>`];
+    return base.concat(values.map(value => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`));
+  };
+
+  genderEl.innerHTML = makeOptions(options.gender, "Vše");
+  occupationEl.innerHTML = makeOptions(options.occupation, "Vše");
+  nationalityEl.innerHTML = makeOptions(options.nationality, "Vše");
+
+  genderEl.value = state.groupEditFilters.gender;
+  occupationEl.value = state.groupEditFilters.occupation;
+  nationalityEl.value = state.groupEditFilters.nationality;
+  ageMinEl.value = state.groupEditFilters.ageMin;
+  ageMaxEl.value = state.groupEditFilters.ageMax;
+  searchEl.value = state.groupEditFilters.query;
+}
+
+function renderGroupEditSessionsList() {
+  const listEl = $("#groupEditSessionsList");
+  const summaryEl = $("#groupEditSummary");
+  const sessions = getSessionsForSelectedTest();
+  if (!listEl) return;
+
+  renderGroupEditFilterControls(sessions);
+  const filtered = applyGenericSessionFilters(sessions, state.groupEditFilters);
+  const selectedSet = new Set(state.groupEditSessionIds ?? []);
+  const sorted = filtered.slice().sort((a, b) => {
+    const aSel = selectedSet.has(a.session_id) ? 1 : 0;
+    const bSel = selectedSet.has(b.session_id) ? 1 : 0;
+    if (aSel !== bSel) return bSel - aSel;
+    return String(a.user_id ?? "").localeCompare(String(b.user_id ?? ""), "cs", { sensitivity: "base" });
+  });
+
+  const selectedCount = sessions.filter((x) => selectedSet.has(x.session_id)).length;
+  if (summaryEl) summaryEl.textContent = `Zobrazeno ${sorted.length} z ${sessions.length} · Vybráno ${selectedCount}`;
+
+  if (!sorted.length) {
+    listEl.innerHTML = `<div class="empty"><div class="empty-title">Žádná session neodpovídá filtru</div></div>`;
+    return;
+  }
+
+  listEl.innerHTML = sorted.map((s) => {
+    const checked = selectedSet.has(s.session_id) ? "checked" : "";
+    return `
+      <label class="list-item" style="cursor:default;">
+        <div class="row" style="justify-content:flex-start; gap:10px;">
+          <input type="checkbox" data-role="group-edit-session" data-session="${escapeHtml(s.session_id)}" ${checked} />
+          <div>
+            <div class="title">${escapeHtml(s.user_id ?? "—")}</div>
+            <div class="muted small">session: ${escapeHtml(s.session_id)}</div>
+          </div>
+        </div>
+      </label>
+    `;
+  }).join("");
+
+    $$("#groupEditSessionsList input[data-role='group-edit-session']").forEach((input) => {
+    input.addEventListener("change", () => {
+      const sid = input.dataset.session;
+      if (!sid) return;
+      const set = new Set(state.groupEditSessionIds ?? []);
+      if (input.checked) set.add(sid);
+      else set.delete(sid);
+      state.groupEditSessionIds = Array.from(set);
+      renderGroupEditSessionsList();
+    });
+  });
+}
+
+function wireGroupEditFilters() {
+  const genderEl = $("#groupEditFilterGender");
+  const occupationEl = $("#groupEditFilterOccupation");
+  const nationalityEl = $("#groupEditFilterNationality");
+  const ageMinEl = $("#groupEditFilterAgeMin");
+  const ageMaxEl = $("#groupEditFilterAgeMax");
+  const searchEl = $("#groupEditSearchInput");
+  const selectAllBtn = $("#groupEditSelectAllBtn");
+  const clearBtn = $("#groupEditClearFiltersBtn");
+
+  if (!genderEl || !occupationEl || !nationalityEl || !ageMinEl || !ageMaxEl || !searchEl || !selectAllBtn || !clearBtn) return;
+
+  const update = () => {
+    state.groupEditFilters.gender = genderEl.value;
+    state.groupEditFilters.occupation = occupationEl.value;
+    state.groupEditFilters.nationality = nationalityEl.value;
+    state.groupEditFilters.ageMin = ageMinEl.value;
+    state.groupEditFilters.ageMax = ageMaxEl.value;
+    state.groupEditFilters.query = searchEl.value;
+    renderGroupEditSessionsList();
+  };
+
+  [genderEl, occupationEl, nationalityEl].forEach((el) => el.addEventListener("change", update));
+  [ageMinEl, ageMaxEl, searchEl].forEach((el) => el.addEventListener("input", update));
+
+  selectAllBtn.addEventListener("click", () => {
+    const sessions = getSessionsForSelectedTest();
+    const filtered = applyGenericSessionFilters(sessions, state.groupEditFilters);
+    const set = new Set(state.groupEditSessionIds ?? []);
+    filtered.forEach((s) => set.add(s.session_id));
+    state.groupEditSessionIds = Array.from(set);
+    renderGroupEditSessionsList();
+  });
+
+  clearBtn.addEventListener("click", () => {
+    state.groupEditFilters = { gender: "", ageMin: "", ageMax: "", occupation: "", nationality: "", query: "" };
+    renderGroupEditSessionsList();
+  });
+}
+
 function openGroupEditModal() {
   const group = getSelectedGroup();
   if (!group) return;
 
-  const listEl = $("#groupEditSessionsList");
-  const sessions = getSessionsForSelectedTest();
   const selected = new Set(group.session_ids ?? []);
   state.groupEditSessionIds = Array.from(selected);
+  state.groupEditFilters = { gender: "", ageMin: "", ageMax: "", occupation: "", nationality: "", query: "" };
 
-  if (listEl) {
-    listEl.innerHTML = sessions.map((s) => {
-      const checked = selected.has(s.session_id) ? "checked" : "";
-      return `
-        <label class="list-item" style="cursor:default;">
-          <div class="row" style="justify-content:flex-start; gap:10px;">
-            <input type="checkbox" data-role="group-edit-session" data-session="${escapeHtml(s.session_id)}" ${checked} />
-            <div>
-              <div class="title">${escapeHtml(s.user_id ?? "—")}</div>
-              <div class="muted small">session: ${escapeHtml(s.session_id)}</div>
-            </div>
-          </div>
-        </label>
-      `;
-    }).join("");
-
-    $$("#groupEditSessionsList input[data-role='group-edit-session']").forEach((input) => {
-      input.addEventListener("change", () => {
-        const sid = input.dataset.session;
-        if (!sid) return;
-        const set = new Set(state.groupEditSessionIds ?? []);
-        if (input.checked) set.add(sid);
-        else set.delete(sid);
-        state.groupEditSessionIds = Array.from(set);
-      });
-    });
-  }
+  const nameInput = $("#groupEditNameInput");
+  if (nameInput) nameInput.value = group.name ?? "";
 
   const statusEl = $("#groupEditStatus");
   if (statusEl) statusEl.textContent = "";
+  renderGroupEditSessionsList();
   show($("#groupEditModal"));
 }
 
@@ -2089,7 +2203,7 @@ async function saveGroupEdit() {
   try {
     if (statusEl) statusEl.textContent = "Ukládám změny…";
     await apiUpdateGroup(group.id, {
-      name: group.name,
+      name: String($("#groupEditNameInput")?.value ?? "").trim() || group.name,
       test_id: group.test_id,
       session_ids: state.groupEditSessionIds ?? [],
     });
@@ -2219,7 +2333,9 @@ function wireNavButtons() {
   });
 
   $("#backFromGroupsBtn")?.addEventListener("click", () => {
-    setPage("dashboard");
+    setPage("individual");
+    renderSessionsList();
+    renderSessionMetrics();
   });
 
   $("#createGroupBtn")?.addEventListener("click", () => {
@@ -2485,8 +2601,9 @@ function wireSessionFilters() {
   const userIdEl = $("#sessionFilterUserId");
   const clearBtn = $("#clearSessionFiltersBtn");
   const selectAllBtn = $("#selectFilteredSessionsBtn");
+  const clearSelectionBtn = $("#clearSessionSelectionBtn");
 
-if (!genderEl || !occupationEl || !nationalityEl || !ageMinEl || !ageMaxEl || !userIdEl || !clearBtn || !selectAllBtn) return;
+if (!genderEl || !occupationEl || !nationalityEl || !ageMinEl || !ageMaxEl || !userIdEl || !clearBtn || !selectAllBtn || !clearSelectionBtn) return;
 
   const updateAndRender = () => {
     state.sessionFilters.gender = genderEl.value;
@@ -2517,6 +2634,12 @@ if (!genderEl || !occupationEl || !nationalityEl || !ageMinEl || !ageMaxEl || !u
     renderSessionsList();
   });
 
+  clearSelectionBtn.addEventListener("click", () => {
+    state.selectedSessionIds = [];
+    persistGroupDraftSelection();
+    renderSessionsList();
+  });
+
   clearBtn.addEventListener("click", () => {
     state.sessionFilters = {
       gender: "",
@@ -2539,6 +2662,7 @@ async function init() {
   wireUpload();
   wireBulkUpload();
   wireSessionFilters();
+  wireGroupEditFilters();
 
   state.tests = loadTestsFromStorage();
   state.selectedTestId = loadSelectedTestFromStorage(state.tests);

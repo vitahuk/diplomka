@@ -187,6 +187,7 @@
                 <div class="filter-actions">
                   <button class="btn" id="createGroupBtn" type="button">Vytvořit skupinu z vybraných</button>
                   <button class="btn btn-ghost" id="selectFilteredSessionsBtn" type="button">Zvolit všechny</button>
+                  <button class="btn btn-ghost" id="clearSessionSelectionBtn" type="button">Zrušit výběr</button>
                   <button class="btn btn-ghost" id="clearSessionFiltersBtn" type="button">Zrušit filtr</button>
                   <div class="muted small" id="sessionFilterSummary"></div>
                 </div>
@@ -397,7 +398,7 @@
         </div>
       </div>
     </div>
-    
+
     <div class="modal hidden" id="uploadTestModal" role="dialog" aria-modal="true" aria-labelledby="uploadTestTitle">
       <div class="modal-backdrop" id="uploadTestModalBackdrop"></div>
 
@@ -426,7 +427,7 @@
 
   </div>
 
-   <div class="modal hidden" id="groupCreateModal" role="dialog" aria-modal="true" aria-labelledby="groupCreateTitle">
+  <div class="modal hidden" id="groupCreateModal" role="dialog" aria-modal="true" aria-labelledby="groupCreateTitle">
     <div class="modal-backdrop" id="groupCreateBackdrop"></div>
     <div class="modal-card">
       <div class="modal-head">
@@ -461,6 +462,44 @@
         <button class="icon-btn" id="closeGroupEditBtn" type="button" aria-label="Zavřít">✕</button>
       </div>
       <div class="modal-body">
+        <label class="filter-field">
+          <span>Název skupiny</span>
+          <input id="groupEditNameInput" type="text" />
+        </label>
+        <div class="muted small">Přepsání názvu a uložení změn aktualizuje název skupiny.</div>
+        <div class="filter-panel" style="margin-top:10px;">
+          <label class="filter-field">
+            <span>Vyhledat podle názvu (user/session)</span>
+            <input id="groupEditSearchInput" type="search" placeholder="např. 12345 nebo session_01" />
+          </label>
+          <div class="filter-grid">
+            <label class="filter-field">
+              <span>Pohlaví</span>
+              <select id="groupEditFilterGender"></select>
+            </label>
+            <label class="filter-field">
+              <span>Věk od</span>
+              <input id="groupEditFilterAgeMin" type="number" inputmode="numeric" min="0" placeholder="např. 18" />
+            </label>
+            <label class="filter-field">
+              <span>Věk do</span>
+              <input id="groupEditFilterAgeMax" type="number" inputmode="numeric" min="0" placeholder="např. 65" />
+            </label>
+            <label class="filter-field">
+              <span>Povolání</span>
+              <select id="groupEditFilterOccupation"></select>
+            </label>
+            <label class="filter-field">
+              <span>Národnost</span>
+              <select id="groupEditFilterNationality"></select>
+            </label>
+          </div>
+          <div class="filter-actions">
+            <button class="btn btn-ghost" id="groupEditSelectAllBtn" type="button">Zvolit všechny</button>
+            <button class="btn btn-ghost" id="groupEditClearFiltersBtn" type="button">Zrušit filtr</button>
+            <div class="muted small" id="groupEditSummary"></div>
+          </div>
+        </div>
         <div class="list" id="groupEditSessionsList"></div>
         <div class="muted small" id="groupEditStatus" style="margin-top:8px;"></div>
       </div>
@@ -471,7 +510,8 @@
     </div>
   </div>
 
-  <div class="modal hidden groups-compare-modal" id="groupsCompareModal" role="dialog" aria-modal="true" aria-labelledby="groupsCompareTitle">
+  <div class="modal hidden groups-compare-modal" id="groupsCompareModal" role="dialog" aria-modal="true"
+    aria-labelledby="groupsCompareTitle">
     <div class="modal-backdrop" id="groupsCompareBackdrop"></div>
     <div class="modal-card compare-modal-card" style="width:min(1180px, 96vw);">
       <div class="modal-head">
@@ -520,7 +560,7 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=15"></script>
+  <script src="/static/app.js?v=16"></script>
 </body>
 
 </html>
