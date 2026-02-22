@@ -351,5 +351,13 @@
       "bariery-interactions-full-combined__8k5ga2gkhb3",
       "bariery-interactions-full-combined__zzsrslpwvn"
     ]
+  },
+  {
+    "id": "grp_785ba9d86157",
+    "test_id": "TEST",
+    "name": "1",
+    "session_ids": [
+      "bariery-interactions-full-combined__8dft2wh1wj"
+    ]
   }
 ]

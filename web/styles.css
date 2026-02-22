@@ -125,7 +125,7 @@ p {
 }
 
 .hidden {
-  display: none;
+  display: none !important;
 }
 
 .page-head {
@@ -367,6 +367,16 @@ p {
   gap: 10px;
 }
 
+.group-stats-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+@media (max-width: 720px) {
+  .group-stats-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .metric-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -424,7 +434,7 @@ p {
 
 /* Modal */
 .modal.hidden {
-  display: none;
+  display: none !important;
 }
 
 .modal {

@@ -240,6 +240,10 @@
             <div class="card-head">
               <h2>Vytvořené skupiny</h2>
               <div class="muted small">Vyber skupinu v rámci aktuálního testu.</div>
+              <label class="filter-field">
+                <span>Vyhledat skupinu</span>
+                <input id="groupsSearchInput" type="search" placeholder="např. experiment A" />
+              </label>
             </div>
             <div class="list" id="groupsList"></div>
           </section>
@@ -256,9 +260,13 @@
                 </div>
                 <div class="list" id="groupUsersList"></div>
               </div>
-              <div class="placeholder-box">Placeholder – porovnání výkonu uživatelů</div>
-              <div class="placeholder-box">Placeholder – agregace času a eventů</div>
-              <div class="placeholder-box">Placeholder – export/report</div>
+              <div class="placeholder-box hidden" id="groupTimeStatsPanel"></div>
+              <div class="placeholder-box hidden" id="groupCountsStatsPanel"></div>
+              <div class="placeholder-box hidden" id="groupAnswersPanel">
+                <div class="title">Vyhodnocení správnosti odpovědí</div>
+                <div class="muted small">Placeholder – připravíme v další iteraci.</div>
+              </div>
+              <div class="placeholder-box hidden" id="groupSocioPanel"></div>
             </div>
           </section>
         </div>
@@ -456,7 +464,7 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=8"></script>
+  <script src="/static/app.js?v=12"></script>
 </body>
 
 </html>

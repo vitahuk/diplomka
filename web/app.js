@@ -69,6 +69,8 @@ const state = {
   tests: [],
   groups: [],
   selectedGroupId: null,
+  groupsSearchQuery: "",
+  isGroupUsersExpanded: false,
   groupEditSessionIds: [],
   pendingUpload: null,
   sessionFilters: {
@@ -1477,13 +1479,153 @@ function getSelectedGroup() {
   return state.groups.find((g) => g.id === state.selectedGroupId) ?? null;
 }
 
+function normalizeSearchText(value) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function computeNumericStats(values) {
+  const nums = values
+    .map((v) => Number(v))
+    .filter((v) => Number.isFinite(v))
+    .sort((a, b) => a - b);
+
+  if (!nums.length) return null;
+
+  const mid = Math.floor(nums.length / 2);
+  const median = nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
+
+  return {
+    count: nums.length,
+    min: nums[0],
+    max: nums[nums.length - 1],
+    avg: nums.reduce((acc, n) => acc + n, 0) / nums.length,
+    median,
+  };
+}
+
+function renderGroupStatMetric(label, value) {
+  return `
+    <div class="metric">
+      <div class="k">${escapeHtml(label)}</div>
+      <div class="v">${escapeHtml(value)}</div>
+    </div>
+  `;
+}
+
+function renderGroupTimeStats(group) {
+  const panel = $("#groupTimeStatsPanel");
+  if (!panel) return;
+  const sessions = Array.isArray(group?.sessions) ? group.sessions : [];
+  const stats = computeNumericStats(sessions.map((s) => s?.stats?.session?.duration_ms));
+
+  panel.classList.remove("hidden");
+  if (!stats) {
+    panel.innerHTML = `<div class="title">Statistiky času řešení testu</div><div class="muted small">Nedostatek dat pro výpočet statistik.</div>`;
+    return;
+  }
+
+  panel.innerHTML = `
+    <div class="title">Statistiky času řešení testu</div>
+    <div class="metrics group-stats-grid" style="margin-top:10px;">
+      ${renderGroupStatMetric("Průměr", fmtMs(stats.avg))}
+      ${renderGroupStatMetric("Medián", fmtMs(stats.median))}
+      ${renderGroupStatMetric("Minimum", fmtMs(stats.min))}
+      ${renderGroupStatMetric("Maximum", fmtMs(stats.max))}
+    </div>
+  `;
+}
+
+function renderGroupCountsStats(group) {
+  const panel = $("#groupCountsStatsPanel");
+  if (!panel) return;
+  const sessions = Array.isArray(group?.sessions) ? group.sessions : [];
+  const tasksStats = computeNumericStats(sessions.map((s) => s?.stats?.session?.tasks_count));
+  const eventsStats = computeNumericStats(sessions.map((s) => s?.stats?.session?.events_total));
+
+  panel.classList.remove("hidden");
+  panel.innerHTML = `<div class="title">Statistiky tasků a eventů</div>`;
+  if (!tasksStats && !eventsStats) {
+    panel.innerHTML += `<div class="muted small">Nedostatek dat pro výpočet statistik.</div>`;
+    return;
+  }
+
+  if (tasksStats) {
+    panel.innerHTML += `
+      <div class="metrics group-stats-grid" style="margin-top:10px;">
+        ${renderGroupStatMetric("Tasky – průměr", tasksStats.avg.toFixed(2))}
+        ${renderGroupStatMetric("Tasky – medián", tasksStats.median.toFixed(2))}
+        ${renderGroupStatMetric("Tasky – minimum", tasksStats.min)}
+        ${renderGroupStatMetric("Tasky – maximum", tasksStats.max)}
+      </div>
+    `;
+  }
+
+  if (eventsStats) {
+    panel.innerHTML += `
+      <div class="metrics group-stats-grid" style="margin-top:10px;">
+        ${renderGroupStatMetric("Eventy – průměr", eventsStats.avg.toFixed(2))}
+        ${renderGroupStatMetric("Eventy – medián", eventsStats.median.toFixed(2))}
+        ${renderGroupStatMetric("Eventy – minimum", eventsStats.min)}
+        ${renderGroupStatMetric("Eventy – maximum", eventsStats.max)}
+      </div>
+    `;
+  }
+}
+
+function renderGroupSocioStats(group) {
+  const panel = $("#groupSocioPanel");
+  if (!panel) return;
+
+  const sessions = Array.isArray(group?.sessions) ? group.sessions : [];
+  const socRows = sessions.map((s) => s?.stats?.session?.soc_demo ?? {});
+  const ageStats = computeNumericStats(socRows.map((r) => r?.age));
+
+  function distribution(key) {
+    const counts = new Map();
+    let total = 0;
+    socRows.forEach((row) => {
+      const val = String(row?.[key] ?? "").trim();
+      if (!val) return;
+      counts.set(val, (counts.get(val) ?? 0) + 1);
+      total += 1;
+    });
+    if (!total) return "—";
+    return Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([value, count]) => `${escapeHtml(value)}: ${((count / total) * 100).toFixed(1)} %`)
+      .join(" · ");
+  }
+
+  panel.classList.remove("hidden");
+  panel.innerHTML = `
+    <div class="title">Socioekonomické statistiky skupiny</div>
+    <div class="metrics group-stats-grid" style="margin-top:10px;">
+      ${renderGroupStatMetric("Průměrný věk", ageStats ? ageStats.avg.toFixed(1) : "—")}
+      ${renderGroupStatMetric("Pohlaví", distribution("gender"))}
+      ${renderGroupStatMetric("Zaměstnání", distribution("occupation"))}
+      ${renderGroupStatMetric("Národnost", distribution("nationality"))}
+    </div>
+  `;
+}
+
 function renderGroupsPage() {
   const groupsListEl = $("#groupsList");
   const usersListEl = $("#groupUsersList");
   const usersPanelEl = $("#groupUsersPanel");
   const usersToggleEl = $("#toggleGroupUsersBtn");
   const editBtn = $("#editGroupBtn");
+  const timePanelEl = $("#groupTimeStatsPanel");
+  const countsPanelEl = $("#groupCountsStatsPanel");
+  const answersPanelEl = $("#groupAnswersPanel");
+  const socioPanelEl = $("#groupSocioPanel");
+  const searchQuery = normalizeSearchText(state.groupsSearchQuery);
   if (!groupsListEl || !usersListEl || !usersPanelEl || !usersToggleEl) return;
+
+  const filteredGroups = state.groups.filter((g) => normalizeSearchText(g.name).includes(searchQuery));
 
   if (!state.groups.length) {
     groupsListEl.innerHTML = `
@@ -1498,12 +1640,20 @@ function renderGroupsPage() {
         <div class="muted small">Po vytvoření skupiny se zde zobrazí členové.</div>
       </div>
     `;
+    usersListEl.style.display = "none";
     usersPanelEl.classList.add("hidden");
+    timePanelEl?.classList.add("hidden");
+    countsPanelEl?.classList.add("hidden");
+    answersPanelEl?.classList.add("hidden");
+    socioPanelEl?.classList.add("hidden");
     if (editBtn) editBtn.disabled = true;
     return;
   }
 
-  groupsListEl.innerHTML = state.groups.map((g) => {
+  if (!filteredGroups.length) {
+    groupsListEl.innerHTML = `<div class="empty"><div class="empty-title">Žádná skupina neodpovídá filtru</div><div class="muted small">Zkus upravit hledaný text.</div></div>`;
+  } else {
+    groupsListEl.innerHTML = filteredGroups.map((g) => {
     const selected = g.id === state.selectedGroupId ? "is-selected" : "";
     const count = Array.isArray(g.sessions) ? g.sessions.length : 0;
     return `
@@ -1515,10 +1665,12 @@ function renderGroupsPage() {
       </div>
     `;
   }).join("");
+  }
 
   $$("#groupsList .list-item").forEach((item) => {
     item.addEventListener("click", () => {
       state.selectedGroupId = item.dataset.group;
+      state.isGroupUsersExpanded = false;
       renderGroupsPage();
     });
   });
@@ -1527,14 +1679,22 @@ function renderGroupsPage() {
   if (!group) {
     usersPanelEl.classList.add("hidden");
     usersListEl.innerHTML = `<div class="empty"><div class="empty-title">Vyber skupinu</div></div>`;
+    usersListEl.style.display = "none";
+    timePanelEl?.classList.add("hidden");
+    countsPanelEl?.classList.add("hidden");
+    answersPanelEl?.classList.add("hidden");
+    socioPanelEl?.classList.add("hidden");
     if (editBtn) editBtn.disabled = true;
     return;
   }
 
   usersPanelEl.classList.remove("hidden");
-  usersToggleEl.textContent = `Uživatelé ve skupině (${(group.sessions ?? []).length})`;
 
   const sessions = Array.isArray(group.sessions) ? group.sessions : [];
+  usersToggleEl.textContent = state.isGroupUsersExpanded
+    ? `Sbalit uživatele ve skupině (${sessions.length})`
+    : `Rozbalit uživatele ve skupině (${sessions.length})`;
+  usersListEl.style.display = state.isGroupUsersExpanded ? "grid" : "none";
   if (!sessions.length) {
     usersListEl.innerHTML = `
       <div class="empty">
@@ -1553,6 +1713,11 @@ function renderGroupsPage() {
       `;
     }).join("");
   }
+
+  if (answersPanelEl) answersPanelEl.classList.remove("hidden");
+  renderGroupTimeStats(group);
+  renderGroupCountsStats(group);
+  renderGroupSocioStats(group);
 
   if (editBtn) editBtn.disabled = false;
 }
@@ -1785,7 +1950,10 @@ function wireNavButtons() {
 
   $("#openGroupsBtn")?.addEventListener("click", async () => {
     await refreshGroups();
-    setPage("groups");
+    state.isGroupUsersExpanded = false;
+    setPage("groups")
+    const groupsSearchInput = $("#groupsSearchInput");
+    if (groupsSearchInput) groupsSearchInput.value = state.groupsSearchQuery ?? "";
     renderGroupsPage();
   });
 
@@ -1800,11 +1968,15 @@ function wireNavButtons() {
   $("#editGroupBtn")?.addEventListener("click", () => {
     openGroupEditModal();
   });
+  
+  $("#groupsSearchInput")?.addEventListener("input", (e) => {
+    state.groupsSearchQuery = e.target?.value ?? "";
+    renderGroupsPage();
+  });
 
   $("#toggleGroupUsersBtn")?.addEventListener("click", () => {
-    const list = $("#groupUsersList");
-    if (!list) return;
-    list.classList.toggle("hidden");
+    state.isGroupUsersExpanded = !state.isGroupUsersExpanded;
+    renderGroupsPage();
   });
 
   $("#settingsReloadBtn")?.addEventListener("click", async () => {
