@@ -498,3 +498,120 @@ p {
   overflow: auto;
   padding-right: 4px;
 }
+
+.groups-compare-modal {
+  align-items: center;
+}
+
+.compare-modal-card {
+  max-height: min(86vh, 820px);
+}
+
+.tab-row {
+  display: flex;
+  gap: 0;
+  margin-bottom: 14px;
+  border-bottom: 1px solid rgba(34, 48, 74, .65);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.tab-btn {
+  border: 1px solid transparent;
+  border-bottom: 0;
+  background: rgba(255, 255, 255, .02);
+  color: var(--muted);
+  border-radius: 10px 10px 0 0;
+  padding: 10px 16px;
+  cursor: pointer;
+  font-weight: 700;
+  margin-bottom: -1px;
+  transition: color .15s ease, background .15s ease, border-color .15s ease;
+  white-space: nowrap;
+}
+
+.tab-btn:hover {
+  color: #d8e4ff;
+  background: rgba(255, 255, 255, .04);
+}
+
+.tab-btn.is-active {
+  color: #ffffff;
+  background: var(--card);
+  border-color: rgba(34, 48, 74, .85);
+  border-bottom-color: var(--card);
+}
+
+.task-compare-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.compact-task-list {
+  gap: 6px;
+  max-height: min(56vh, 520px);
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.compact-task-list .list-item {
+  padding: 8px 10px;
+  min-height: 38px;
+  gap: 0;
+  border-radius: 10px;
+}
+
+.compare-table-wrap {
+  overflow: auto;
+  border: 1px solid rgba(34, 48, 74, .85);
+  border-radius: 12px;
+}
+
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.compare-table th,
+.compare-table td {
+  border: 1px solid rgba(34, 48, 74, .8);
+  padding: 9px 10px;
+  text-align: left;
+}
+
+.compare-table th {
+  background: rgba(24, 34, 54, .92);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  font-weight: 800;
+}
+
+.sortable-th {
+  cursor: pointer;
+  user-select: none;
+}
+
+.sort-indicator {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+@media (max-width: 980px) {
+  .compare-modal-card {
+    width: min(96vw, 96vw) !important;
+    max-height: 90vh;
+  }
+
+  .task-compare-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .compact-task-list {
+    max-height: 180px;
+  }
+}

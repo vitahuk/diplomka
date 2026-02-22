@@ -69,7 +69,13 @@ const state = {
   tests: [],
   groups: [],
   selectedGroupId: null,
+  selectedGroupCompareIds: [],
   groupsSearchQuery: "",
+  groupCompareTab: "summary",
+  groupCompareSort: { key: "avgDurationMs", direction: "desc" },
+  groupTaskSearchQuery: "",
+  selectedGroupCompareTaskId: null,
+  groupTaskCompareSort: { key: "avgDurationMs", direction: "desc" },
   isGroupUsersExpanded: false,
   groupEditSessionIds: [],
   pendingUpload: null,
@@ -1487,6 +1493,133 @@ function normalizeSearchText(value) {
     .trim();
 }
 
+function getTaskIdsForGroup(group) {
+  const sessions = Array.isArray(group?.sessions) ? group.sessions : [];
+  const out = new Set();
+  sessions.forEach((s) => {
+    const taskIds = Array.isArray(s?.tasks) && s.tasks.length ? s.tasks : [s?.task ?? "unknown"];
+    taskIds.forEach((taskId) => out.add(String(taskId)));
+  });
+  return Array.from(out).sort((a, b) => a.localeCompare(b));
+}
+
+function getAllTaskIdsForGroups(groups) {
+  const out = new Set();
+  (groups ?? []).forEach((g) => getTaskIdsForGroup(g).forEach((taskId) => out.add(taskId)));
+  return Array.from(out).sort((a, b) => a.localeCompare(b));
+}
+
+function medianFromNumbers(values) {
+  const nums = values
+    .map((v) => Number(v))
+    .filter((v) => Number.isFinite(v))
+    .sort((a, b) => a - b);
+  if (!nums.length) return null;
+  const mid = Math.floor(nums.length / 2);
+  return nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
+}
+
+function buildGroupCompareRows(groups, taskId = null) {
+  return (groups ?? []).map((group) => {
+    let sessions = Array.isArray(group?.sessions) ? group.sessions : [];
+    if (taskId) {
+      sessions = sessions.filter((s) => {
+        const taskIds = Array.isArray(s?.tasks) && s.tasks.length ? s.tasks : [s?.task ?? "unknown"];
+        return taskIds.includes(taskId);
+      });
+    }
+
+    const durations = sessions
+      .map((s) => {
+        if (taskId) return s?.stats?.tasks?.[taskId]?.duration_ms;
+        return s?.stats?.session?.duration_ms;
+      })
+      .filter((v) => Number.isFinite(Number(v)))
+      .map((v) => Number(v));
+
+    const ages = sessions
+      .map((s) => s?.stats?.session?.soc_demo?.age)
+      .filter((v) => Number.isFinite(Number(v)))
+      .map((v) => Number(v));
+
+    const avgDurationMs = durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : null;
+    const medianDurationMs = medianFromNumbers(durations);
+    const avgAge = ages.length ? ages.reduce((a, b) => a + b, 0) / ages.length : null;
+
+    return {
+      groupId: group.id,
+      groupName: group.name ?? "Bez názvu",
+      avgDurationMs,
+      medianDurationMs,
+      avgCorrectness: null,
+      avgAge,
+      membersCount: sessions.length,
+    };
+  });
+}
+
+function compareValues(a, b, direction) {
+  const dir = direction === "asc" ? 1 : -1;
+  if (a === null || a === undefined) return 1;
+  if (b === null || b === undefined) return -1;
+  if (typeof a === "string" || typeof b === "string") {
+    return String(a).localeCompare(String(b)) * dir;
+  }
+  return (Number(a) - Number(b)) * dir;
+}
+
+function sortRows(rows, sort) {
+  const key = sort?.key ?? "avgDurationMs";
+  const direction = sort?.direction ?? "desc";
+  return [...rows].sort((r1, r2) => compareValues(r1[key], r2[key], direction));
+}
+
+function renderCompareTable({ rows, sort }) {
+  const headers = [
+    { key: "groupName", label: "Skupina" },
+    { key: "avgDurationMs", label: "Průměrný čas" },
+    { key: "medianDurationMs", label: "Medián času" },
+    { key: "avgCorrectness", label: "Průměrná správnost" },
+    { key: "avgAge", label: "Průměrný věk" },
+  ];
+
+  const sorted = sortRows(rows, sort);
+  const arrows = (key) => {
+    if (sort?.key !== key) return "↕";
+    return sort?.direction === "asc" ? "↑" : "↓";
+  };
+
+  return `
+    <div class="compare-table-wrap">
+      <table class="compare-table">
+        <thead>
+          <tr>
+            ${headers.map((h) => `<th class="sortable-th" data-sort-key="${escapeHtml(h.key)}">${escapeHtml(h.label)} <span class="sort-indicator">${arrows(h.key)}</span></th>`).join("")}
+          </tr>
+        </thead>
+        <tbody>
+          ${sorted.map((row) => `
+            <tr>
+              <td>${escapeHtml(row.groupName)}</td>
+              <td>${escapeHtml(fmtMs(row.avgDurationMs))}</td>
+              <td>${escapeHtml(fmtMs(row.medianDurationMs))}</td>
+              <td>${escapeHtml(row.avgCorrectness === null ? "—" : String(row.avgCorrectness))}</td>
+              <td>${escapeHtml(row.avgAge === null ? "—" : row.avgAge.toFixed(1))}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function toggleSort(currentSort, key) {
+  if (currentSort?.key === key) {
+    return { key, direction: currentSort.direction === "asc" ? "desc" : "asc" };
+  }
+  return { key, direction: "desc" };
+}
+
 function computeNumericStats(values) {
   const nums = values
     .map((v) => Number(v))
@@ -1623,6 +1756,7 @@ function renderGroupsPage() {
   const answersPanelEl = $("#groupAnswersPanel");
   const socioPanelEl = $("#groupSocioPanel");
   const searchQuery = normalizeSearchText(state.groupsSearchQuery);
+  const compareBtn = $("#openGroupsCompareBtn");
   if (!groupsListEl || !usersListEl || !usersPanelEl || !usersToggleEl) return;
 
   const filteredGroups = state.groups.filter((g) => normalizeSearchText(g.name).includes(searchQuery));
@@ -1647,6 +1781,7 @@ function renderGroupsPage() {
     answersPanelEl?.classList.add("hidden");
     socioPanelEl?.classList.add("hidden");
     if (editBtn) editBtn.disabled = true;
+    if (compareBtn) compareBtn.disabled = true;
     return;
   }
 
@@ -1655,11 +1790,15 @@ function renderGroupsPage() {
   } else {
     groupsListEl.innerHTML = filteredGroups.map((g) => {
     const selected = g.id === state.selectedGroupId ? "is-selected" : "";
+    const checked = (state.selectedGroupCompareIds ?? []).includes(g.id) ? "checked" : "";
     const count = Array.isArray(g.sessions) ? g.sessions.length : 0;
     return `
       <div class="list-item ${selected}" data-group="${escapeHtml(g.id)}">
         <div class="row">
-          <div class="title">${escapeHtml(g.name ?? "Bez názvu")}</div>
+          <label class="row" style="justify-content:flex-start; gap:10px;">
+            <input type="checkbox" data-role="group-compare-select" data-group="${escapeHtml(g.id)}" ${checked} />
+            <div class="title">${escapeHtml(g.name ?? "Bez názvu")}</div>
+          </label>
           <span class="pill">${count} uživatelů</span>
         </div>
       </div>
@@ -1675,6 +1814,20 @@ function renderGroupsPage() {
     });
   });
 
+  $$("#groupsList input[data-role='group-compare-select']").forEach((input) => {
+    input.addEventListener("click", (e) => e.stopPropagation());
+    input.addEventListener("change", () => {
+      const id = input.dataset.group;
+      const set = new Set(state.selectedGroupCompareIds ?? []);
+      if (input.checked) set.add(id);
+      else set.delete(id);
+      state.selectedGroupCompareIds = Array.from(set);
+      if (compareBtn) compareBtn.disabled = state.selectedGroupCompareIds.length < 1;
+    });
+  });
+
+  if (compareBtn) compareBtn.disabled = (state.selectedGroupCompareIds ?? []).length < 1;
+
   const group = getSelectedGroup();
   if (!group) {
     usersPanelEl.classList.add("hidden");
@@ -1685,6 +1838,7 @@ function renderGroupsPage() {
     answersPanelEl?.classList.add("hidden");
     socioPanelEl?.classList.add("hidden");
     if (editBtn) editBtn.disabled = true;
+    if (compareBtn) compareBtn.disabled = (state.selectedGroupCompareIds ?? []).length < 1;
     return;
   }
 
@@ -1818,6 +1972,113 @@ function openGroupEditModal() {
 
 function closeGroupEditModal() {
   hide($("#groupEditModal"));
+}
+
+function getGroupsForComparison() {
+  const ids = new Set(state.selectedGroupCompareIds ?? []);
+  return state.groups.filter((g) => ids.has(g.id));
+}
+
+function renderGroupCompareSummaryTab(groups) {
+  const wrap = $("#groupsCompareTableWrap");
+  if (!wrap) return;
+  if (!groups.length) {
+    wrap.innerHTML = `<div class="empty"><div class="empty-title">Nejsou vybrané skupiny</div><div class="muted small">Na stránce Skupiny označ skupiny pro srovnání.</div></div>`;
+    return;
+  }
+
+  const rows = buildGroupCompareRows(groups, null);
+  wrap.innerHTML = renderCompareTable({ rows, sort: state.groupCompareSort });
+  $$("#groupsCompareTableWrap .sortable-th[data-sort-key]").forEach((cell) => {
+    cell.addEventListener("click", () => {
+      const key = cell.dataset.sortKey;
+      state.groupCompareSort = toggleSort(state.groupCompareSort, key);
+      renderGroupCompareModal();
+    });
+  });
+}
+
+function renderGroupCompareTaskTab(groups) {
+  const taskListEl = $("#groupTaskList");
+  const tableWrap = $("#groupTaskCompareTableWrap");
+  if (!taskListEl || !tableWrap) return;
+
+  const allTasks = getAllTaskIdsForGroups(groups);
+  const q = normalizeSearchText(state.groupTaskSearchQuery);
+  const filteredTasks = allTasks.filter((taskId) => normalizeSearchText(taskId).includes(q));
+
+  if (!allTasks.length) {
+    taskListEl.innerHTML = `<div class="empty"><div class="empty-title">Žádné úlohy</div><div class="muted small">Vybrané skupiny zatím neobsahují úlohy.</div></div>`;
+    tableWrap.innerHTML = "";
+    return;
+  }
+
+  if (!state.selectedGroupCompareTaskId || !allTasks.includes(state.selectedGroupCompareTaskId)) {
+    state.selectedGroupCompareTaskId = allTasks[0];
+  }
+
+  taskListEl.innerHTML = filteredTasks.length
+    ? filteredTasks.map((taskId) => {
+      const selected = taskId === state.selectedGroupCompareTaskId ? "is-selected" : "";
+      return `<div class="list-item ${selected}" data-role="compare-task-item" data-task="${escapeHtml(taskId)}"><div class="title">${escapeHtml(taskId)}</div></div>`;
+    }).join("")
+    : `<div class="empty"><div class="empty-title">Žádná úloha neodpovídá filtru</div></div>`;
+
+  $$("#groupTaskList [data-role='compare-task-item']").forEach((item) => {
+    item.addEventListener("click", () => {
+      state.selectedGroupCompareTaskId = item.dataset.task;
+      renderGroupCompareModal();
+    });
+  });
+
+  if (!state.selectedGroupCompareTaskId) {
+    tableWrap.innerHTML = "";
+    return;
+  }
+
+  const rows = buildGroupCompareRows(groups, state.selectedGroupCompareTaskId);
+  tableWrap.innerHTML = `
+    <div class="muted small" style="margin-bottom:8px;">Úloha: <b>${escapeHtml(state.selectedGroupCompareTaskId)}</b></div>
+    ${renderCompareTable({ rows, sort: state.groupTaskCompareSort })}
+  `;
+  $$("#groupTaskCompareTableWrap .sortable-th[data-sort-key]").forEach((cell) => {
+    cell.addEventListener("click", () => {
+      const key = cell.dataset.sortKey;
+      state.groupTaskCompareSort = toggleSort(state.groupTaskCompareSort, key);
+      renderGroupCompareModal();
+    });
+  });
+}
+
+function renderGroupCompareModal() {
+  const modal = $("#groupsCompareModal");
+  if (!modal || modal.classList.contains("hidden")) return;
+
+  const groups = getGroupsForComparison();
+  const subtitle = $("#groupsCompareSubtitle");
+  if (subtitle) subtitle.textContent = `Vybráno skupin: ${groups.length}`;
+
+  $$("#groupsCompareTabs .tab-btn").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.dataset.tab === state.groupCompareTab);
+    btn.setAttribute("aria-selected", btn.dataset.tab === state.groupCompareTab ? "true" : "false");
+  });
+  $$("#groupsCompareModal [data-panel]").forEach((panel) => {
+    panel.classList.toggle("hidden", panel.dataset.panel !== state.groupCompareTab);
+  });
+
+  renderGroupCompareSummaryTab(groups);
+  renderGroupCompareTaskTab(groups);
+}
+
+function openGroupCompareModal() {
+  if ((state.selectedGroupCompareIds ?? []).length < 1) return;
+  state.groupCompareTab = "summary";
+  show($("#groupsCompareModal"));
+  renderGroupCompareModal();
+}
+
+function closeGroupCompareModal() {
+  hide($("#groupsCompareModal"));
 }
 
 async function saveGroupEdit() {
@@ -1969,6 +2230,10 @@ function wireNavButtons() {
     openGroupEditModal();
   });
   
+  $("#openGroupsCompareBtn")?.addEventListener("click", () => {
+    openGroupCompareModal();
+  });
+
   $("#groupsSearchInput")?.addEventListener("input", (e) => {
     state.groupsSearchQuery = e.target?.value ?? "";
     renderGroupsPage();
@@ -1982,6 +2247,17 @@ function wireNavButtons() {
   $("#settingsReloadBtn")?.addEventListener("click", async () => {
     await loadAnswersForSelectedTest();
     renderSettingsPage();
+  });
+
+  $("#groupsCompareTabs")?.addEventListener("click", (e) => {
+    const btn = e.target?.closest?.("[data-tab]");
+    if (!btn) return;
+    state.groupCompareTab = btn.dataset.tab;
+    renderGroupCompareModal();
+  });
+
+  $("#groupTaskSearchBtn")?.addEventListener("click", () => {
+    renderGroupCompareModal();
   });
 
   // NEW: Timeline button (on "Úlohy v session" page, right column)
@@ -2027,6 +2303,10 @@ function wireModal() {
   $("#closeTimelineBtn2")?.addEventListener("click", closeTimelineModal);
   $("#timelineModalBackdrop")?.addEventListener("click", closeTimelineModal);
 
+  $("#closeGroupsCompareBtn")?.addEventListener("click", closeGroupCompareModal);
+  $("#closeGroupsCompareBtn2")?.addEventListener("click", closeGroupCompareModal);
+  $("#groupsCompareBackdrop")?.addEventListener("click", closeGroupCompareModal);
+
   window.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       const modal1 = $("#taskMetricsModal");
@@ -2044,6 +2324,9 @@ function wireModal() {
 
       const modal5 = $("#groupEditModal");
       if (modal5 && !modal5.classList.contains("hidden")) closeGroupEditModal();
+
+      const modal6 = $("#groupsCompareModal");
+      if (modal6 && !modal6.classList.contains("hidden")) closeGroupCompareModal();
     }
   });
 }

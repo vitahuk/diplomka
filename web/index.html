@@ -244,6 +244,13 @@
                 <span>Vyhledat skupinu</span>
                 <input id="groupsSearchInput" type="search" placeholder="např. experiment A" />
               </label>
+              <div class="row" style="align-items:end; gap:10px;">
+                <label class="filter-field" style="flex:1; margin:0;">
+                  <span>Vyhledat skupinu</span>
+                  <input id="groupsSearchInput" type="search" placeholder="např. experiment A" />
+                </label>
+                <button class="btn" id="openGroupsCompareBtn" type="button">Srovnání skupin</button>
+              </div>
             </div>
             <div class="list" id="groupsList"></div>
           </section>
@@ -464,7 +471,56 @@
     </div>
   </div>
 
-  <script src="/static/app.js?v=12"></script>
+  <div class="modal hidden groups-compare-modal" id="groupsCompareModal" role="dialog" aria-modal="true" aria-labelledby="groupsCompareTitle">
+    <div class="modal-backdrop" id="groupsCompareBackdrop"></div>
+    <div class="modal-card compare-modal-card" style="width:min(1180px, 96vw);">
+      <div class="modal-head">
+        <div>
+          <div class="modal-title" id="groupsCompareTitle">Srovnání skupin</div>
+          <div class="muted small" id="groupsCompareSubtitle">Porovnání vybraných skupin.</div>
+        </div>
+        <button class="icon-btn" id="closeGroupsCompareBtn" type="button" aria-label="Zavřít">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="tab-row" id="groupsCompareTabs" role="tablist" aria-label="Srovnání skupin">
+          <button class="tab-btn is-active" type="button" role="tab" data-tab="summary">Tabulka</button>
+          <button class="tab-btn" type="button" role="tab" data-tab="chart">Graf (připravujeme)</button>
+          <button class="tab-btn" type="button" role="tab" data-tab="task">Srovnání na úrovni úloh</button>
+        </div>
+
+        <section class="tab-panel" data-panel="summary">
+          <div id="groupsCompareTableWrap"></div>
+        </section>
+
+        <section class="tab-panel hidden" data-panel="chart">
+          <div class="empty">
+            <div class="empty-title">Grafické srovnání</div>
+            <div class="muted small">Sem přidáme graf v další iteraci.</div>
+          </div>
+        </section>
+
+        <section class="tab-panel hidden" data-panel="task">
+          <div class="task-compare-layout">
+            <div>
+              <div class="row" style="gap:8px; align-items:end; margin-bottom:8px;">
+                <label class="filter-field" style="flex:1; margin:0;">
+                  <span>Vyhledat úlohu</span>
+                  <input id="groupTaskSearchInput" type="search" placeholder="např. task_1" />
+                </label>
+              </div>
+              <div class="list compact-task-list" id="groupTaskList"></div>
+            </div>
+            <div id="groupTaskCompareTableWrap"></div>
+          </div>
+        </section>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" id="closeGroupsCompareBtn2" type="button">Zavřít</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=15"></script>
 </body>
 
 </html>

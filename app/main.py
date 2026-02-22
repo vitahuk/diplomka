@@ -423,6 +423,8 @@ def api_list_groups(test_id: Optional[str] = None):
                 "session_id": session.session_id,
                 "user_id": session.user_id,
                 "test_id": getattr(session, "test_id", "TEST") or "TEST",
+                "task": session.task,
+                "tasks": list((session.stats or {}).get("tasks", {}).keys()),
                 "stats": session.stats if isinstance(session.stats, dict) else {},
             })
 
