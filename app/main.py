@@ -316,7 +316,7 @@ def get_task_metrics(session_id: str, task_id: str):
     return m
 
 
-# ===== NEW: raw events for timeline =====
+# ===== NEW: raw events for timeline/map =====
 @app.get("/api/sessions/{session_id}/events")
 def get_session_events(session_id: str):
     s = STORE.get(session_id)
@@ -328,7 +328,7 @@ def get_session_events(session_id: str):
         raise HTTPException(status_code=404, detail="CSV soubor pro session nenalezen.")
 
     # read only required columns
-    usecols = ["timestamp", "event_name", "event_detail", "task"]
+    usecols = ["timestamp", "event_name", "event_detail", "task", "userid", "user_id", "UserID"]
     try:
         df = pd.read_csv(csv_path, usecols=lambda c: c in usecols)
     except Exception as e:
@@ -338,7 +338,10 @@ def get_session_events(session_id: str):
     if "timestamp" not in df.columns or "event_name" not in df.columns:
         raise HTTPException(status_code=400, detail="CSV neobsahuje required sloupce (timestamp, event_name).")
 
-    # keep order as in file
+    # keep deterministic order by timestamp
+    df["timestamp"] = pd.to_numeric(df["timestamp"], errors="coerce")
+    df = df[df["timestamp"].notna()].sort_values("timestamp", kind="stable")
+
     out = []
     for _, row in df.iterrows():
         ts = row.get("timestamp")
@@ -347,12 +350,20 @@ def get_session_events(session_id: str):
             continue
         detail = row.get("event_detail") if "event_detail" in df.columns else None
         task = row.get("task") if "task" in df.columns else None
+        event_user = None
+        for col in ("userid", "user_id", "UserID"):
+            if col in df.columns:
+                val = row.get(col)
+                if not pd.isna(val):
+                    event_user = str(val)
+                    break
 
         out.append({
             "timestamp": int(ts),
             "event_name": str(name),
             "event_detail": None if pd.isna(detail) else str(detail),
             "task": None if pd.isna(task) else str(task),
+            "event_user_id": event_user,
         })
 
     return {
