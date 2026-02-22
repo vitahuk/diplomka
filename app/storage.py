@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import threading
 import json
 
@@ -11,7 +11,9 @@ DATA_DIR = BASE_DIR / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 TEST_ANSWERS_FILE = DATA_DIR / "test_answers.json"
+GROUPS_FILE = DATA_DIR / "groups.json"
 _TEST_ANSWERS_LOCK = threading.Lock()
+_GROUPS_LOCK = threading.Lock()
 
 
 @dataclass
@@ -132,3 +134,102 @@ def set_test_answer(test_id: str, task_id: str, answer: Optional[int]) -> Dict[s
 
         _write_test_answers_file(all_answers)
         return dict(all_answers[test_id])
+
+
+# =========================
+# Groups persistence
+# =========================
+
+def _read_groups_file() -> List[Dict[str, Any]]:
+    if not GROUPS_FILE.exists():
+        return []
+
+    try:
+        raw = json.loads(GROUPS_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+    if not isinstance(raw, list):
+        return []
+
+    out: List[Dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+
+        group_id = str(item.get("id", "")).strip()
+        test_id = str(item.get("test_id", "TEST")).strip() or "TEST"
+        name = str(item.get("name", "")).strip()
+        session_ids = item.get("session_ids")
+        if not isinstance(session_ids, list):
+            session_ids = []
+
+        normalized_session_ids = []
+        for session_id in session_ids:
+            if isinstance(session_id, str) and session_id.strip():
+                normalized_session_ids.append(session_id.strip())
+
+        if not group_id or not name:
+            continue
+
+        out.append({
+            "id": group_id,
+            "test_id": test_id,
+            "name": name,
+            "session_ids": normalized_session_ids,
+        })
+
+    return out
+
+
+def _write_groups_file(groups: List[Dict[str, Any]]) -> None:
+    GROUPS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    GROUPS_FILE.write_text(
+        json.dumps(groups, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def list_groups(test_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    with _GROUPS_LOCK:
+        groups = _read_groups_file()
+
+    if isinstance(test_id, str) and test_id.strip():
+        normalized_test_id = test_id.strip()
+        groups = [g for g in groups if g.get("test_id") == normalized_test_id]
+
+    return groups
+
+
+def upsert_group(group_id: str, test_id: str, name: str, session_ids: List[str]) -> Dict[str, Any]:
+    normalized_group_id = str(group_id or "").strip()
+    normalized_test_id = str(test_id or "TEST").strip() or "TEST"
+    normalized_name = str(name or "").strip()
+
+    normalized_session_ids = []
+    for session_id in session_ids:
+        if isinstance(session_id, str) and session_id.strip():
+            normalized_session_ids.append(session_id.strip())
+
+    if not normalized_group_id:
+        raise ValueError("group_id is required")
+    if not normalized_name:
+        raise ValueError("name is required")
+
+    payload = {
+        "id": normalized_group_id,
+        "test_id": normalized_test_id,
+        "name": normalized_name,
+        "session_ids": list(dict.fromkeys(normalized_session_ids)),
+    }
+
+    with _GROUPS_LOCK:
+        groups = _read_groups_file()
+        idx = next((i for i, g in enumerate(groups) if g.get("id") == normalized_group_id), None)
+        if idx is None:
+            groups.append(payload)
+        else:
+            groups[idx] = payload
+        _write_groups_file(groups)
+
+    return payload

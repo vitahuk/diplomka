@@ -9,11 +9,13 @@ from pathlib import Path
 import re
 import shutil
 from typing import Any, Dict, Optional, List
+from uuid import uuid4
 
 import pandas as pd
 
 from app.storage import STORE, SessionData, ensure_upload_dir
 from app.storage import get_test_answers, set_test_answer
+from app.storage import list_groups, upsert_group
 from app.parsing.maptrack_csv import (
     parse_session,
     parse_session_df,
@@ -386,3 +388,74 @@ def api_put_test_answer(
 
     updated = set_test_answer(test_id, task_id, int(answer))
     return {"test_id": test_id, "answers": updated}
+
+
+@app.get("/api/groups")
+def api_list_groups(test_id: Optional[str] = None):
+    groups = list_groups(test_id=test_id)
+
+    out = []
+    for g in groups:
+        session_ids = g.get("session_ids", []) if isinstance(g.get("session_ids"), list) else []
+        sessions_out = []
+
+        for sid in session_ids:
+            session = STORE.get(sid)
+            if not session:
+                continue
+            sessions_out.append({
+                "session_id": session.session_id,
+                "user_id": session.user_id,
+                "test_id": getattr(session, "test_id", "TEST") or "TEST",
+                "stats": session.stats if isinstance(session.stats, dict) else {},
+            })
+
+        out.append({
+            "id": g.get("id"),
+            "test_id": g.get("test_id"),
+            "name": g.get("name"),
+            "session_ids": session_ids,
+            "sessions": sessions_out,
+        })
+
+    return {"groups": out}
+
+
+@app.post("/api/groups")
+def api_create_group(payload: dict = Body(...)):
+    name = str(payload.get("name", "")).strip()
+    test_id = str(payload.get("test_id", "TEST")).strip() or "TEST"
+    session_ids = payload.get("session_ids", [])
+
+    if not name:
+        raise HTTPException(status_code=400, detail="Název skupiny je povinný.")
+    if not isinstance(session_ids, list) or not session_ids:
+        raise HTTPException(status_code=400, detail="Vyber alespoň jednu session.")
+
+    group_id = f"grp_{uuid4().hex[:12]}"
+    try:
+        group = upsert_group(group_id=group_id, test_id=test_id, name=name, session_ids=session_ids)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {"group": group}
+
+
+@app.put("/api/groups/{group_id}")
+def api_update_group(group_id: str, payload: dict = Body(...)):
+    existing = next((g for g in list_groups() if g.get("id") == group_id), None)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Skupina nenalezena.")
+
+    name = str(payload.get("name", existing.get("name", ""))).strip()
+    test_id = str(payload.get("test_id", existing.get("test_id", "TEST"))).strip() or "TEST"
+    session_ids = payload.get("session_ids", existing.get("session_ids", []))
+    if not isinstance(session_ids, list):
+        raise HTTPException(status_code=400, detail="session_ids musí být pole.")
+
+    try:
+        group = upsert_group(group_id=group_id, test_id=test_id, name=name, session_ids=session_ids)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {"group": group}

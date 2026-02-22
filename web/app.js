@@ -10,6 +10,7 @@ function setPage(pageId) {
   hide($("#view-settings"));
   hide($("#view-individual"));
   hide($("#view-group"));
+  hide($("#view-groups"));
   show($(`#view-${pageId}`));
 }
 
@@ -54,6 +55,7 @@ function isCoordinateLike(s) {
 
 const TESTS_STORAGE_KEY = "maptrack_tests";
 const SELECTED_TEST_STORAGE_KEY = "maptrack_selected_test";
+const GROUP_DRAFT_SELECTION_KEY = "maptrack_group_selection";
 
 
 // ===== App State =====
@@ -62,8 +64,12 @@ const state = {
   selectedSessionId: null,
   selectedSession: null,
   selectedTaskId: null,
+  selectedSessionIds: [],
   sessions: [],
   tests: [],
+  groups: [],
+  selectedGroupId: null,
+  groupEditSessionIds: [],
   pendingUpload: null,
   sessionFilters: {
     gender: "",
@@ -145,6 +151,27 @@ function getSessionsForSelectedTest() {
   return state.sessions.filter((s) => (s.test_id ?? "TEST") === testId);
 }
 
+function persistGroupDraftSelection() {
+  try {
+    localStorage.setItem(
+      GROUP_DRAFT_SELECTION_KEY,
+      JSON.stringify({ testId: state.selectedTestId ?? "TEST", sessionIds: state.selectedSessionIds ?? [] })
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+function loadGroupDraftSelectionForTest(testId) {
+  try {
+    const raw = localStorage.getItem(GROUP_DRAFT_SELECTION_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!parsed || parsed.testId !== testId || !Array.isArray(parsed.sessionIds)) return [];
+    return parsed.sessionIds.filter((id) => typeof id === "string" && id.trim());
+  } catch {
+    return [];
+  }
+}
 
 // ===== API =====
 async function apiGet(path) {
@@ -207,6 +234,39 @@ async function apiPutTestAnswer(testId, taskName, answerOrNull) {
 
 async function apiGetTaskMetrics(sessionId, taskId) {
   return apiGet(`/api/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}/metrics`);
+}
+
+async function apiListGroups(testId) {
+  const q = testId ? `?test_id=${encodeURIComponent(testId)}` : "";
+  return apiGet(`/api/groups${q}`);
+}
+
+async function apiCreateGroup(payload) {
+  const res = await fetch("/api/groups", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    let err = {};
+    try { err = await res.json(); } catch { }
+    throw new Error(err.detail ?? res.statusText);
+  }
+  return res.json();
+}
+
+async function apiUpdateGroup(groupId, payload) {
+  const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    let err = {};
+    try { err = await res.json(); } catch { }
+    throw new Error(err.detail ?? res.statusText);
+  }
+  return res.json();
 }
 
 // NEW: raw events for timeline
@@ -478,7 +538,8 @@ function renderSessionsList() {
 
   const filteredSessions = applySessionFilters(sessions);
   if (summaryEl) {
-    summaryEl.textContent = `Zobrazeno ${filteredSessions.length} z ${sessions.length}`;
+    const selectedCount = (state.selectedSessionIds ?? []).filter((sid) => sessions.some((s) => s.session_id === sid)).length;
+    summaryEl.textContent = `Zobrazeno ${filteredSessions.length} z ${sessions.length} · Vybráno ${selectedCount}`;
   }
 
   if (!filteredSessions.length) {
@@ -499,10 +560,15 @@ function renderSessionsList() {
     const tasksCount = sessionStats.tasks_count ?? (Array.isArray(s.tasks) ? s.tasks.length : "—");
     const user = s.user_id ?? "—";
 
+    const checked = (state.selectedSessionIds ?? []).includes(s.session_id) ? "checked" : "";
+
     return `
       <div class="list-item ${selected}" data-session="${escapeHtml(s.session_id)}">
         <div class="row">
-          <div class="title">${escapeHtml(s.session_id)}</div>
+          <div class="row" style="justify-content:flex-start; gap:8px;">
+            <input type="checkbox" data-role="group-select" data-session="${escapeHtml(s.session_id)}" ${checked} />
+            <div class="title">${escapeHtml(s.session_id)}</div>
+          </div>
           <span class="pill">events: ${escapeHtml(events)}</span>
         </div>
         <div class="muted small">
@@ -514,9 +580,25 @@ function renderSessionsList() {
   }).join("");
 
   $$("#sessionsList .list-item").forEach(item => {
-    item.addEventListener("click", () => {
+    item.addEventListener("click", (e) => {
+      if (e.target?.matches?.('input[data-role="group-select"]')) return;
       const id = item.dataset.session;
       selectSession(id);
+    });
+  });
+
+  $$("#sessionsList input[data-role='group-select']").forEach((input) => {
+    input.addEventListener("change", () => {
+      const sessionId = input.dataset.session;
+      if (!sessionId) return;
+
+      const selected = new Set(state.selectedSessionIds ?? []);
+      if (input.checked) selected.add(sessionId);
+      else selected.delete(sessionId);
+
+      state.selectedSessionIds = Array.from(selected);
+      persistGroupDraftSelection();
+      renderSessionsList();
     });
   });
 }
@@ -1378,6 +1460,222 @@ function closeTimelineModal() {
   hide($("#timelineModal"));
 }
 
+async function refreshGroups() {
+  const out = await apiListGroups(state.selectedTestId ?? "TEST");
+  state.groups = out.groups ?? [];
+
+  if (state.selectedGroupId && !state.groups.some((g) => g.id === state.selectedGroupId)) {
+    state.selectedGroupId = null;
+  }
+
+  if (!state.selectedGroupId && state.groups.length) {
+    state.selectedGroupId = state.groups[0].id;
+  }
+}
+
+function getSelectedGroup() {
+  return state.groups.find((g) => g.id === state.selectedGroupId) ?? null;
+}
+
+function renderGroupsPage() {
+  const groupsListEl = $("#groupsList");
+  const usersListEl = $("#groupUsersList");
+  const usersPanelEl = $("#groupUsersPanel");
+  const usersToggleEl = $("#toggleGroupUsersBtn");
+  const editBtn = $("#editGroupBtn");
+  if (!groupsListEl || !usersListEl || !usersPanelEl || !usersToggleEl) return;
+
+  if (!state.groups.length) {
+    groupsListEl.innerHTML = `
+      <div class="empty">
+        <div class="empty-title">Zatím nejsou vytvořené skupiny</div>
+        <div class="muted small">Na stránce Sessions vyber uživatele a vytvoř první skupinu.</div>
+      </div>
+    `;
+    usersListEl.innerHTML = `
+      <div class="empty">
+        <div class="empty-title">Vyber skupinu</div>
+        <div class="muted small">Po vytvoření skupiny se zde zobrazí členové.</div>
+      </div>
+    `;
+    usersPanelEl.classList.add("hidden");
+    if (editBtn) editBtn.disabled = true;
+    return;
+  }
+
+  groupsListEl.innerHTML = state.groups.map((g) => {
+    const selected = g.id === state.selectedGroupId ? "is-selected" : "";
+    const count = Array.isArray(g.sessions) ? g.sessions.length : 0;
+    return `
+      <div class="list-item ${selected}" data-group="${escapeHtml(g.id)}">
+        <div class="row">
+          <div class="title">${escapeHtml(g.name ?? "Bez názvu")}</div>
+          <span class="pill">${count} uživatelů</span>
+        </div>
+      </div>
+    `;
+  }).join("");
+
+  $$("#groupsList .list-item").forEach((item) => {
+    item.addEventListener("click", () => {
+      state.selectedGroupId = item.dataset.group;
+      renderGroupsPage();
+    });
+  });
+
+  const group = getSelectedGroup();
+  if (!group) {
+    usersPanelEl.classList.add("hidden");
+    usersListEl.innerHTML = `<div class="empty"><div class="empty-title">Vyber skupinu</div></div>`;
+    if (editBtn) editBtn.disabled = true;
+    return;
+  }
+
+  usersPanelEl.classList.remove("hidden");
+  usersToggleEl.textContent = `Uživatelé ve skupině (${(group.sessions ?? []).length})`;
+
+  const sessions = Array.isArray(group.sessions) ? group.sessions : [];
+  if (!sessions.length) {
+    usersListEl.innerHTML = `
+      <div class="empty">
+        <div class="empty-title">Skupina je prázdná</div>
+        <div class="muted small">Použij tlačítko Editace skupiny pro přidání uživatelů.</div>
+      </div>
+    `;
+  } else {
+    usersListEl.innerHTML = sessions.map((s) => {
+      const ss = s.stats?.session ?? {};
+      return `
+        <div class="list-item">
+          <div class="row"><div class="title">${escapeHtml(s.user_id ?? "—")}</div></div>
+          <div class="muted small">session: ${escapeHtml(s.session_id ?? "—")} · eventů: ${escapeHtml(ss.events_total ?? "—")} · délka: ${escapeHtml(fmtMs(ss.duration_ms))}</div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  if (editBtn) editBtn.disabled = false;
+}
+
+
+function openCreateGroupModal() {
+  const selected = state.selectedSessionIds ?? [];
+  const sessions = getSessionsForSelectedTest();
+  const validSelected = selected.filter((sid) => sessions.some((s) => s.session_id === sid));
+  const statusEl = $("#groupCreateStatus");
+  if (!validSelected.length) {
+    if (statusEl) statusEl.textContent = "Nejprve vyber aspoň jednu session.";
+    return;
+  }
+
+  if (statusEl) statusEl.textContent = `Vybráno sessions: ${validSelected.length}`;
+  const nameInput = $("#groupNameInput");
+  if (nameInput) nameInput.value = "";
+  show($("#groupCreateModal"));
+}
+
+function closeCreateGroupModal() {
+  hide($("#groupCreateModal"));
+}
+
+async function saveCreatedGroup() {
+  const nameInput = $("#groupNameInput");
+  const statusEl = $("#groupCreateStatus");
+  const name = String(nameInput?.value ?? "").trim();
+  const sessions = getSessionsForSelectedTest();
+  const validSelected = (state.selectedSessionIds ?? []).filter((sid) => sessions.some((s) => s.session_id === sid));
+
+  if (!name) {
+    if (statusEl) statusEl.textContent = "Vyplň název skupiny.";
+    return;
+  }
+  if (!validSelected.length) {
+    if (statusEl) statusEl.textContent = "Vyber aspoň jednu session.";
+    return;
+  }
+
+  try {
+    if (statusEl) statusEl.textContent = "Ukládám skupinu…";
+    await apiCreateGroup({
+      name,
+      test_id: state.selectedTestId ?? "TEST",
+      session_ids: validSelected,
+    });
+    await refreshGroups();
+    renderGroupsPage();
+    closeCreateGroupModal();
+  } catch (e) {
+    if (statusEl) statusEl.textContent = `Chyba: ${e?.message ?? e}`;
+  }
+}
+
+function openGroupEditModal() {
+  const group = getSelectedGroup();
+  if (!group) return;
+
+  const listEl = $("#groupEditSessionsList");
+  const sessions = getSessionsForSelectedTest();
+  const selected = new Set(group.session_ids ?? []);
+  state.groupEditSessionIds = Array.from(selected);
+
+  if (listEl) {
+    listEl.innerHTML = sessions.map((s) => {
+      const checked = selected.has(s.session_id) ? "checked" : "";
+      return `
+        <label class="list-item" style="cursor:default;">
+          <div class="row" style="justify-content:flex-start; gap:10px;">
+            <input type="checkbox" data-role="group-edit-session" data-session="${escapeHtml(s.session_id)}" ${checked} />
+            <div>
+              <div class="title">${escapeHtml(s.user_id ?? "—")}</div>
+              <div class="muted small">session: ${escapeHtml(s.session_id)}</div>
+            </div>
+          </div>
+        </label>
+      `;
+    }).join("");
+
+    $$("#groupEditSessionsList input[data-role='group-edit-session']").forEach((input) => {
+      input.addEventListener("change", () => {
+        const sid = input.dataset.session;
+        if (!sid) return;
+        const set = new Set(state.groupEditSessionIds ?? []);
+        if (input.checked) set.add(sid);
+        else set.delete(sid);
+        state.groupEditSessionIds = Array.from(set);
+      });
+    });
+  }
+
+  const statusEl = $("#groupEditStatus");
+  if (statusEl) statusEl.textContent = "";
+  show($("#groupEditModal"));
+}
+
+function closeGroupEditModal() {
+  hide($("#groupEditModal"));
+}
+
+async function saveGroupEdit() {
+  const group = getSelectedGroup();
+  const statusEl = $("#groupEditStatus");
+  if (!group) return;
+
+  try {
+    if (statusEl) statusEl.textContent = "Ukládám změny…";
+    await apiUpdateGroup(group.id, {
+      name: group.name,
+      test_id: group.test_id,
+      session_ids: state.groupEditSessionIds ?? [],
+    });
+    await refreshGroups();
+    renderGroupsPage();
+    closeGroupEditModal();
+  } catch (e) {
+    if (statusEl) statusEl.textContent = `Chyba: ${e?.message ?? e}`;
+  }
+}
+
+
 // ===== Selection + Breadcrumbs =====
 function updateBreadcrumbs() {
   const testEl = $("#crumb-test");
@@ -1394,6 +1692,7 @@ function selectTest(testId) {
   state.selectedTestId = testId;
   saveSelectedTestToStorage(testId);
   updateBreadcrumbs();
+  state.selectedSessionIds = loadGroupDraftSelectionForTest(testId);
 
 const sessionsForTest = getSessionsForSelectedTest();
   if (state.selectedSessionId && !sessionsForTest.some(s => s.session_id === state.selectedSessionId)) {
@@ -1409,12 +1708,21 @@ const sessionsForTest = getSessionsForSelectedTest();
   renderTestAggMetrics();
   renderSessionsList();
   renderSessionMetrics();
+  const validIds = new Set(getSessionsForSelectedTest().map((x) => x.session_id));
+  state.selectedSessionIds = (state.selectedSessionIds ?? []).filter((sid) => validIds.has(sid));
+  persistGroupDraftSelection();
+
   renderTasksList();
 
   if (!$("#view-settings")?.classList.contains("hidden")) {
     loadAnswersForSelectedTest().then(() => renderSettingsPage());
   }
+
+  if (!$("#view-groups")?.classList.contains("hidden")) {
+    refreshGroups().then(() => renderGroupsPage());
+  }
 }
+
 
 function selectSession(sessionId) {
   state.selectedSessionId = sessionId;
@@ -1441,6 +1749,14 @@ async function refreshSessions() {
   } else if (state.selectedSessionId) {
     state.selectedSession = state.sessions.find(s => s.session_id === state.selectedSessionId) ?? null;
   }
+
+  const validIds = new Set(getSessionsForSelectedTest().map((x) => x.session_id));
+  state.selectedSessionIds = (state.selectedSessionIds ?? []).filter((sid) => validIds.has(sid));
+  persistGroupDraftSelection();
+
+  if (!$("#view-groups")?.classList.contains("hidden")) {
+    refreshGroups().then(() => renderGroupsPage());
+  }
 }
 
 // ===== Events wiring =====
@@ -1465,6 +1781,30 @@ function wireNavButtons() {
   $("#backFromSettingsBtn")?.addEventListener("click", () => {
     setPage("dashboard");
     selectTest(state.selectedTestId ?? "TEST");
+  });
+
+  $("#openGroupsBtn")?.addEventListener("click", async () => {
+    await refreshGroups();
+    setPage("groups");
+    renderGroupsPage();
+  });
+
+  $("#backFromGroupsBtn")?.addEventListener("click", () => {
+    setPage("dashboard");
+  });
+
+  $("#createGroupBtn")?.addEventListener("click", () => {
+    openCreateGroupModal();
+  });
+
+  $("#editGroupBtn")?.addEventListener("click", () => {
+    openGroupEditModal();
+  });
+
+  $("#toggleGroupUsersBtn")?.addEventListener("click", () => {
+    const list = $("#groupUsersList");
+    if (!list) return;
+    list.classList.toggle("hidden");
   });
 
   $("#settingsReloadBtn")?.addEventListener("click", async () => {
@@ -1502,6 +1842,16 @@ function wireModal() {
 
   // NEW: timeline modal close wiring (only if modal exists in HTML)
   $("#closeTimelineBtn")?.addEventListener("click", closeTimelineModal);
+
+  $("#closeGroupCreateBtn")?.addEventListener("click", closeCreateGroupModal);
+  $("#cancelGroupCreateBtn")?.addEventListener("click", closeCreateGroupModal);
+  $("#groupCreateBackdrop")?.addEventListener("click", closeCreateGroupModal);
+  $("#saveGroupBtn")?.addEventListener("click", saveCreatedGroup);
+
+  $("#closeGroupEditBtn")?.addEventListener("click", closeGroupEditModal);
+  $("#cancelGroupEditBtn")?.addEventListener("click", closeGroupEditModal);
+  $("#groupEditBackdrop")?.addEventListener("click", closeGroupEditModal);
+  $("#saveGroupEditBtn")?.addEventListener("click", saveGroupEdit);
   $("#closeTimelineBtn2")?.addEventListener("click", closeTimelineModal);
   $("#timelineModalBackdrop")?.addEventListener("click", closeTimelineModal);
 
@@ -1516,6 +1866,12 @@ function wireModal() {
 
       const modal3 = $("#uploadTestModal");
       if (modal3 && !modal3.classList.contains("hidden")) closeUploadTestModal();
+
+      const modal4 = $("#groupCreateModal");
+      if (modal4 && !modal4.classList.contains("hidden")) closeCreateGroupModal();
+
+      const modal5 = $("#groupEditModal");
+      if (modal5 && !modal5.classList.contains("hidden")) closeGroupEditModal();
     }
   });
 }
@@ -1673,8 +2029,9 @@ function wireSessionFilters() {
   const ageMaxEl = $("#sessionFilterAgeMax");
   const userIdEl = $("#sessionFilterUserId");
   const clearBtn = $("#clearSessionFiltersBtn");
+  const selectAllBtn = $("#selectFilteredSessionsBtn");
 
-  if (!genderEl || !occupationEl || !nationalityEl || !ageMinEl || !ageMaxEl || !userIdEl || !clearBtn) return;
+if (!genderEl || !occupationEl || !nationalityEl || !ageMinEl || !ageMaxEl || !userIdEl || !clearBtn || !selectAllBtn) return;
 
   const updateAndRender = () => {
     state.sessionFilters.gender = genderEl.value;
@@ -1692,6 +2049,18 @@ function wireSessionFilters() {
   ageMinEl.addEventListener("input", updateAndRender);
   ageMaxEl.addEventListener("input", updateAndRender);
   userIdEl.addEventListener("input", updateAndRender);
+
+  selectAllBtn.addEventListener("click", () => {
+    const sessions = getSessionsForSelectedTest();
+    const filteredSessions = applySessionFilters(sessions);
+    if (!filteredSessions.length) return;
+
+    const selected = new Set(state.selectedSessionIds ?? []);
+    filteredSessions.forEach((session) => selected.add(session.session_id));
+    state.selectedSessionIds = Array.from(selected);
+    persistGroupDraftSelection();
+    renderSessionsList();
+  });
 
   clearBtn.addEventListener("click", () => {
     state.sessionFilters = {

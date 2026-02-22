@@ -445,11 +445,14 @@ p {
 .modal-card {
   position: relative;
   width: min(720px, 100%);
+  max-height: calc(100vh - 32px);
   background: var(--card);
   border: 1px solid rgba(34, 48, 74, .95);
   border-radius: 18px;
   box-shadow: var(--shadow);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .modal-head {
@@ -469,6 +472,7 @@ p {
 
 .modal-body {
   padding: 14px;
+  overflow: auto;
 }
 
 .modal-foot {
@@ -477,4 +481,10 @@ p {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+#groupEditSessionsList {
+  max-height: 55vh;
+  overflow: auto;
+  padding-right: 4px;
 }

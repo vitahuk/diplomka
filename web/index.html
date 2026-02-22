@@ -145,6 +145,7 @@
           </div>
 
           <div class="page-actions">
+            <button class="btn" id="openGroupsBtn" type="button">Skupiny</button>
             <button class="btn btn-ghost" id="backToTestsBtn" type="button">← Zpět na testy</button>
           </div>
         </div>
@@ -184,6 +185,8 @@
                   </label>
                 </div>
                 <div class="filter-actions">
+                  <button class="btn" id="createGroupBtn" type="button">Vytvořit skupinu z vybraných</button>
+                  <button class="btn btn-ghost" id="selectFilteredSessionsBtn" type="button">Zvolit všechny</button>
                   <button class="btn btn-ghost" id="clearSessionFiltersBtn" type="button">Zrušit filtr</button>
                   <div class="muted small" id="sessionFilterSummary"></div>
                 </div>
@@ -219,6 +222,48 @@
           </section>
         </div>
       </section>
+
+      <section class="page hidden" id="view-groups">
+        <div class="page-head">
+          <div>
+            <h1>Skupiny</h1>
+            <p class="muted">Správa uživatelských skupin a příprava dat pro budoucí vizualizace.</p>
+          </div>
+          <div class="page-actions">
+            <button class="btn" id="editGroupBtn" type="button" disabled>Editace skupiny</button>
+            <button class="btn btn-ghost" id="backFromGroupsBtn" type="button">← Zpět</button>
+          </div>
+        </div>
+
+        <div class="layout-2">
+          <section class="card">
+            <div class="card-head">
+              <h2>Vytvořené skupiny</h2>
+              <div class="muted small">Vyber skupinu v rámci aktuálního testu.</div>
+            </div>
+            <div class="list" id="groupsList"></div>
+          </section>
+
+          <section class="card">
+            <div class="card-head">
+              <h2>Vizualizace (placeholdery)</h2>
+              <div class="muted small">Na tento panel navážeme další část vývoje.</div>
+            </div>
+            <div class="stack">
+              <div class="placeholder-box hidden" id="groupUsersPanel">
+                <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:10px;">
+                  <button class="btn btn-ghost" id="toggleGroupUsersBtn" type="button">Uživatelé ve skupině</button>
+                </div>
+                <div class="list" id="groupUsersList"></div>
+              </div>
+              <div class="placeholder-box">Placeholder – porovnání výkonu uživatelů</div>
+              <div class="placeholder-box">Placeholder – agregace času a eventů</div>
+              <div class="placeholder-box">Placeholder – export/report</div>
+            </div>
+          </section>
+        </div>
+      </section>
+
 
       <!-- PAGE 3: TASKS LIST FOR SELECTED SESSION -->
       <section class="page hidden" id="view-group">
@@ -366,7 +411,52 @@
 
   </div>
 
-  <script src="/static/app.js?v=7"></script>
+   <div class="modal hidden" id="groupCreateModal" role="dialog" aria-modal="true" aria-labelledby="groupCreateTitle">
+    <div class="modal-backdrop" id="groupCreateBackdrop"></div>
+    <div class="modal-card">
+      <div class="modal-head">
+        <div>
+          <div class="modal-title" id="groupCreateTitle">Vytvořit skupinu</div>
+          <div class="muted small">Zadej název skupiny pro vybrané sessions.</div>
+        </div>
+        <button class="icon-btn" id="closeGroupCreateBtn" type="button" aria-label="Zavřít">✕</button>
+      </div>
+      <div class="modal-body">
+        <label class="filter-field">
+          <span>Název skupiny</span>
+          <input id="groupNameInput" type="text" placeholder="např. Pilotní skupina A" />
+        </label>
+        <div class="muted small" id="groupCreateStatus" style="margin-top:8px;"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" id="cancelGroupCreateBtn" type="button">Zrušit</button>
+        <button class="btn" id="saveGroupBtn" type="button">Uložit</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal hidden" id="groupEditModal" role="dialog" aria-modal="true" aria-labelledby="groupEditTitle">
+    <div class="modal-backdrop" id="groupEditBackdrop"></div>
+    <div class="modal-card" style="width:min(920px, 96vw);">
+      <div class="modal-head">
+        <div>
+          <div class="modal-title" id="groupEditTitle">Editace skupiny</div>
+          <div class="muted small">Přidávej/odebírej uživatele a ulož změny.</div>
+        </div>
+        <button class="icon-btn" id="closeGroupEditBtn" type="button" aria-label="Zavřít">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="list" id="groupEditSessionsList"></div>
+        <div class="muted small" id="groupEditStatus" style="margin-top:8px;"></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" id="cancelGroupEditBtn" type="button">Zrušit</button>
+        <button class="btn" id="saveGroupEditBtn" type="button">Uložit změny</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js?v=8"></script>
 </body>
 
 </html>
