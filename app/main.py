@@ -12,6 +12,7 @@ from collections import Counter
 import shutil
 from typing import Any, Dict, Optional, List
 from uuid import uuid4
+from difflib import SequenceMatcher
 
 import pandas as pd
 
@@ -138,6 +139,7 @@ def _normalize_text(value: Any) -> str:
         return ""
     text = unicodedata.normalize("NFKD", text)
     text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = re.sub(r"[^a-z0-9\s]", " ", text)
     text = re.sub(r"\s+", " ", text)
     return text.strip()
 
@@ -147,51 +149,116 @@ def _extract_answers_by_task_from_df(df: pd.DataFrame) -> Dict[str, str]:
         return {}
     
     answer_event_names = {"answer selected", "polygon selected"}
-    confirm_event_names = {"setting task", "completed"}
 
     if "task" not in df.columns:
         return {}
 
-    rows = list(df.to_dict("records"))
     finalized: Dict[str, str] = {}
-    pending: Optional[tuple[str, str]] = None
-
-    for row in rows:
+    for row in df.to_dict("records"):
         event_name_raw = row.get("event_name")
         if event_name_raw is None or (isinstance(event_name_raw, float) and pd.isna(event_name_raw)):
             continue
 
         event_name = str(event_name_raw).strip().lower()
-        if event_name in answer_event_names:
-            task_raw = row.get("task")
-            if task_raw is None or (isinstance(task_raw, float) and pd.isna(task_raw)):
-                continue
-
-            task_id = str(task_raw).strip()
-            if not task_id:
-                continue
-
-            event_detail_raw = row.get("event_detail") if "event_detail" in df.columns else None
-            answer_text = "" if event_detail_raw is None or (isinstance(event_detail_raw, float) and pd.isna(event_detail_raw)) else str(event_detail_raw).strip()
-            if not answer_text:
-                continue
-
-            # keep latest candidate answer until task switch/completion confirms it
-            pending = (task_id, answer_text)
+        if event_name not in answer_event_names:
             continue
 
-        if event_name in confirm_event_names and pending is not None:
-            task_id, answer_text = pending
-            finalized[task_id] = answer_text
-            pending = None
+        task_raw = row.get("task")
+        if task_raw is None or (isinstance(task_raw, float) and pd.isna(task_raw)):
+            continue
+
+        task_id = str(task_raw).strip()
+        if not task_id:
+            continue
+
+        event_detail_raw = row.get("event_detail") if "event_detail" in df.columns else None
+        answer_text = "" if event_detail_raw is None or (isinstance(event_detail_raw, float) and pd.isna(event_detail_raw)) else str(event_detail_raw).strip()
+        if not answer_text:
+            continue
+
+        # Keep latest explicit answer event per task.
+        finalized[task_id] = answer_text
 
     return finalized
 
 
-def _evaluate_answer(correct_answer: str, user_answer: str) -> bool:
+def _similarity_score(a: str, b: str) -> float:
+    if not a or not b:
+        return 0.0
+    return SequenceMatcher(None, a, b).ratio() * 100.0
+
+
+def _evaluate_answer(correct_answer: str, user_answer: str, threshold: float = 85.0) -> tuple[bool, float]:
     if not correct_answer or not user_answer:
-        return False
-    return _normalize_text(correct_answer) == _normalize_text(user_answer)
+        return False, 0.0
+
+    norm_correct = _normalize_text(correct_answer)
+    norm_user = _normalize_text(user_answer)
+    score = _similarity_score(norm_correct, norm_user)
+    return score >= threshold, score
+
+
+def _build_answers_eval_for_session(
+    answers_by_task: Dict[str, str],
+    answer_key: Dict[str, str],
+) -> Dict[str, Any]:
+    task_records: Dict[str, Dict[str, Any]] = {}
+    answered_count = 0
+    correct_count = 0
+
+    for task_id, user_answer in answers_by_task.items():
+        task = str(task_id or "").strip()
+        if not task:
+            continue
+        answer_text = str(user_answer or "").strip()
+        if not answer_text:
+            continue
+
+        answered_count += 1
+        correct_answer = answer_key.get(task)
+        is_correct = False
+        similarity = None
+        if isinstance(correct_answer, str) and correct_answer.strip():
+            is_correct, score = _evaluate_answer(correct_answer, answer_text)
+            similarity = score
+            if is_correct:
+                correct_count += 1
+
+        task_records[task] = {
+            "task_id": task,
+            "answer": answer_text,
+            "correct_answer": correct_answer,
+            "is_correct": is_correct,
+            "similarity_score": similarity,
+        }
+
+    expected_count = len([
+        t for t, val in answer_key.items()
+        if str(t).strip() and isinstance(val, str) and val.strip()
+    ])
+    accuracy = (correct_count / answered_count) if answered_count else None
+    coverage = (answered_count / expected_count) if expected_count else None
+
+    return {
+        "by_task": task_records,
+        "summary": {
+            "answered_count": answered_count,
+            "correct_count": correct_count,
+            "expected_count": expected_count,
+            "accuracy": accuracy,
+            "coverage": coverage,
+        },
+    }
+
+
+def _ensure_session_answers_eval(session_data: SessionData) -> Dict[str, Any]:
+    stats = session_data.stats if isinstance(session_data.stats, dict) else {}
+    answers_by_task = stats.get("answers_by_task") if isinstance(stats.get("answers_by_task"), dict) else {}
+    answer_key = get_test_answers(getattr(session_data, "test_id", "TEST") or "TEST")
+    eval_payload = _build_answers_eval_for_session(answers_by_task, answer_key)
+    stats = {**stats, "answers_by_task": answers_by_task, "answers_eval": eval_payload}
+    session_data.stats = stats
+    return eval_payload
 
 
 def _build_group_answers_payload(group: Dict[str, Any]) -> Dict[str, Any]:
@@ -219,11 +286,12 @@ def _build_group_answers_payload(group: Dict[str, Any]) -> Dict[str, Any]:
                 "correct_count": 0,
                 "total_count": 0,
             })
-            is_correct = _evaluate_answer(correct or "", answer) if isinstance(correct, str) else False
+            is_correct, similarity = _evaluate_answer(correct or "", answer) if isinstance(correct, str) else (False, 0.0)
             record["answers"].append({
                 "user_id": user_id or None,
                 "answer": answer,
                 "is_correct": is_correct,
+                "similarity_score": similarity,
             })
             record["total_count"] += 1
             if is_correct:
@@ -233,23 +301,43 @@ def _build_group_answers_payload(group: Dict[str, Any]) -> Dict[str, Any]:
         total = record.get("total_count") or 0
         correct_count = record.get("correct_count") or 0
         record["accuracy"] = (correct_count / total) if total else None
+    
+    answered_total = sum(record.get("total_count", 0) for record in by_task.values())
+    correct_total = sum(record.get("correct_count", 0) for record in by_task.values())
+    expected_count = len([
+        t for t, val in answer_key.items()
+        if str(t).strip() and isinstance(val, str) and val.strip()
+    ])
+
+    by_user: Dict[str, Dict[str, Any]] = {}
+    for session in sessions:
+        sid = str(session.get("session_id") or "").strip()
+        uid = str(session.get("user_id") or "").strip()
+        stats = session.get("stats") if isinstance(session.get("stats"), dict) else {}
+        eval_payload = stats.get("answers_eval") if isinstance(stats.get("answers_eval"), dict) else {}
+        summary = eval_payload.get("summary") if isinstance(eval_payload.get("summary"), dict) else {}
+
+        by_user[sid or uid or f"session_{len(by_user)+1}"] = {
+            "session_id": sid or None,
+            "user_id": uid or None,
+            "answered_count": summary.get("answered_count", 0),
+            "correct_count": summary.get("correct_count", 0),
+            "accuracy": summary.get("accuracy"),
+            "coverage": summary.get("coverage"),
+        }
 
     return {
         "group_id": group.get("id"),
         "test_id": test_id,
         "tasks": by_task,
+        "summary": {
+            "answered_count": answered_total,
+            "correct_count": correct_total,
+            "expected_count": expected_count,
+            "accuracy": (correct_total / answered_total) if answered_total else None,
+        },
+        "users": by_user,
     }
-
-
-def _tokenize_for_wordcloud(value: str) -> List[str]:
-    normalized = _normalize_text(value)
-    if not normalized:
-        return []
-    normalized = re.sub(r"[^a-z0-9\s]", " ", normalized)
-    parts = [p for p in normalized.split() if len(p) >= 2]
-    stopwords = {"a", "i", "v", "ve", "s", "z", "na", "do", "se", "ze", "to", "je", "jsou", "the", "and", "or", "of"}
-    return [p for p in parts if p not in stopwords]
-
 
 def _build_wordcloud_from_group_payload(payload: Dict[str, Any], task_id: Optional[str] = None) -> List[Dict[str, Any]]:
     tasks = payload.get("tasks", {}) if isinstance(payload.get("tasks"), dict) else {}
@@ -261,8 +349,8 @@ def _build_wordcloud_from_group_payload(payload: Dict[str, Any], task_id: Option
         answers = record.get("answers", []) if isinstance(record.get("answers"), list) else []
         for item in answers:
             answer = str(item.get("answer") or "").strip()
-            for token in _tokenize_for_wordcloud(answer):
-                counter[token] += 1
+            if answer:
+                counter[answer] += 1
 
     return [{"text": text, "count": count} for text, count in counter.most_common(80)]
 
@@ -309,11 +397,13 @@ async def upload_csv(
         # store all stats in one structure
         source_df = _read_csv_flexible(dst)
         answers_by_task = _extract_answers_by_task_from_df(source_df)
+        answers_eval = _build_answers_eval_for_session(answers_by_task, get_test_answers(test_id or "TEST"))
 
         stats: Dict[str, Any] = {
             "session": session_metrics,
             "tasks": task_metrics,
             "answers_by_task": answers_by_task,
+            "answers_eval": answers_eval,
         }
 
     except Exception as e:
@@ -403,11 +493,14 @@ async def upload_bulk_csv(
             session_metrics = compute_session_metrics(session=parsed_session, raw_row=soc_row)
             task_metrics = compute_all_task_metrics(parsed_session)
             answers_by_task = _extract_answers_by_task_from_df(df_user)
+            answers_eval = _build_answers_eval_for_session(answers_by_task, get_test_answers(test_id or "TEST"))
 
             stats: Dict[str, Any] = {
                 "session": session_metrics,
                 "tasks": task_metrics,
                 "answers": answers_by_task,
+                "answers_by_task": answers_by_task,
+                "answers_eval": answers_eval,
             }
 
             session_meta = SessionData(
@@ -443,6 +536,7 @@ def list_sessions():
 
     out = []
     for s in sessions.values():
+        _ensure_session_answers_eval(s)
         stats = s.stats if isinstance(s.stats, dict) else {}
         session_stats = stats.get("session", {}) if isinstance(stats.get("session"), dict) else {}
 
@@ -468,6 +562,7 @@ def get_session(session_id: str):
     if not s:
         raise HTTPException(status_code=404, detail="Session nenalezena.")
 
+    _ensure_session_answers_eval(s)
     stats = s.stats if isinstance(s.stats, dict) else {}
     task_metrics = stats.get("tasks", {}) if isinstance(stats.get("tasks"), dict) else {}
     tasks = list(task_metrics.keys())
@@ -496,7 +591,32 @@ def get_task_metrics(session_id: str, task_id: str):
     if not isinstance(m, dict):
         raise HTTPException(status_code=404, detail="Task nenalezen v session.")
 
-    return m
+    answers_eval = _ensure_session_answers_eval(s)
+    task_eval_map = answers_eval.get("by_task") if isinstance(answers_eval.get("by_task"), dict) else {}
+    task_eval = task_eval_map.get(task_id) if isinstance(task_eval_map.get(task_id), dict) else {}
+
+    return {
+        **m,
+        "answer": task_eval.get("answer"),
+        "correct_answer": task_eval.get("correct_answer"),
+        "is_correct": task_eval.get("is_correct"),
+        "similarity_score": task_eval.get("similarity_score"),
+    }
+
+@app.get("/api/sessions/{session_id}/answers-eval")
+def get_session_answers_eval(session_id: str):
+    s = STORE.get(session_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="Session nenalezena.")
+
+    payload = _ensure_session_answers_eval(s)
+    return {
+        "session_id": s.session_id,
+        "user_id": s.user_id,
+        "test_id": getattr(s, "test_id", "TEST") or "TEST",
+        **payload,
+    }
+
 
 
 # ===== NEW: raw events for timeline =====
@@ -597,12 +717,17 @@ def api_put_test_answer(
     answer = payload["answer"]
     if answer is None:
         updated = set_test_answer(test_id, task_id, None)
-        return {"test_id": test_id, "answers": updated}
+    else:
+        if not isinstance(answer, str):
+            raise HTTPException(status_code=400, detail="'answer' must be a string or null.")
+        updated = set_test_answer(test_id, task_id, answer)
 
-    if not isinstance(answer, str):
-        raise HTTPException(status_code=400, detail="'answer' must be a string or null.")
+    # Refresh cached evaluation for all sessions in this test.
+    sessions = STORE.list_sessions()
+    for session in sessions.values():
+        if (getattr(session, "test_id", "TEST") or "TEST") == test_id:
+            _ensure_session_answers_eval(session)
 
-    updated = set_test_answer(test_id, task_id, answer)
     return {"test_id": test_id, "answers": updated}
 
 
@@ -665,6 +790,10 @@ def api_group_answers(group_id: str):
                     answers_by_task = {}
             stats = {**stats, "answers_by_task": answers_by_task}
             session.stats = stats
+        
+        _ensure_session_answers_eval(session)
+        stats = session.stats if isinstance(session.stats, dict) else {}
+
 
         sessions_out.append({
             "session_id": session.session_id,

@@ -39,6 +39,12 @@ function safeNum(x) {
   return Number.isFinite(n) ? n : null;
 }
 
+function fmtPercent(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "—";
+  return `${(n * 100).toFixed(1)} %`;
+}
+
 function escapeHtml(s) {
   return String(s ?? "")
     .replaceAll("&", "&amp;")
@@ -267,6 +273,10 @@ async function apiPutTestAnswer(testId, taskName, answerOrNull) {
 
 async function apiGetTaskMetrics(sessionId, taskId) {
   return apiGet(`/api/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}/metrics`);
+}
+
+async function apiGetSessionAnswersEval(sessionId) {
+  return apiGet(`/api/sessions/${encodeURIComponent(sessionId)}/answers-eval`);
 }
 
 async function apiListGroups(testId) {
@@ -695,6 +705,7 @@ function renderSessionMetrics() {
   const s = state.selectedSession;
   const sessionStats = s.stats?.session ?? {};
   const soc = sessionStats.soc_demo ?? {};
+  const answersSummary = s.stats?.answers_eval?.summary ?? {};
 
   renderMetricGrid({
     "Session ID": s.session_id,
@@ -702,6 +713,7 @@ function renderSessionMetrics() {
     "Počet tasků": sessionStats.tasks_count ?? (Array.isArray(s.tasks) ? s.tasks.length : "—"),
     "Počet eventů": sessionStats.events_total ?? "—",
     "Celkový čas řešení": fmtMs(sessionStats.duration_ms),
+    "Průměrná správnost odpovědí": fmtPercent(answersSummary.accuracy),
 
     "Age": soc.age ?? "—",
     "Gender": soc.gender ?? "—",
@@ -921,6 +933,9 @@ async function openTaskModal(taskId) {
     renderMetricGrid({
       "Čas řešení úlohy": fmtMs(m.duration_ms),
       "Počet eventů v úloze": m.events_total ?? "—",
+      "Odpověď uživatele": m.answer ?? "—",
+      "Správná odpověď": m.correct_answer ?? "—",
+      "Správně": m.is_correct === true ? "ANO" : (m.is_correct === false ? "NE" : "—"),
     }, metrics);
   } catch (e) {
     if (metrics) {
@@ -2149,12 +2164,17 @@ function buildGroupCompareRows(groups, taskId = null) {
     const medianDurationMs = medianFromNumbers(durations);
     const avgAge = ages.length ? ages.reduce((a, b) => a + b, 0) / ages.length : null;
 
+    const accuracies = sessions
+      .map((s) => Number(s?.stats?.answers_eval?.summary?.accuracy))
+      .filter((v) => Number.isFinite(v));
+    const avgCorrectness = accuracies.length ? accuracies.reduce((a, b) => a + b, 0) / accuracies.length : null;
+
     return {
       groupId: group.id,
       groupName: group.name ?? "Bez názvu",
       avgDurationMs,
       medianDurationMs,
-      avgCorrectness: null,
+      avgCorrectness,
       avgAge,
       membersCount: sessions.length,
     };
@@ -2206,7 +2226,7 @@ function renderCompareTable({ rows, sort }) {
               <td>${escapeHtml(row.groupName)}</td>
               <td>${escapeHtml(fmtMs(row.avgDurationMs))}</td>
               <td>${escapeHtml(fmtMs(row.medianDurationMs))}</td>
-              <td>${escapeHtml(row.avgCorrectness === null ? "—" : String(row.avgCorrectness))}</td>
+              td>${escapeHtml(fmtPercent(row.avgCorrectness))}</td>
               <td>${escapeHtml(row.avgAge === null ? "—" : row.avgAge.toFixed(1))}</td>
             </tr>
           `).join("")}
@@ -2410,7 +2430,7 @@ async function renderGroupAnswersAndWordcloud(group) {
   }
 }
 
-function renderGroupCompareWordcloudTab(groups) {
+function renderGroupCompareAnswersTab(groups) {
   const wrap = $("#groupsCompareWordcloudWrap");
   if (!wrap) return;
   if (!groups.length) {
@@ -2426,7 +2446,7 @@ function renderGroupCompareWordcloudTab(groups) {
   const options = allTasks.map((taskId) => `<option value="${escapeHtml(taskId)}" ${taskId===state.selectedGroupCompareTaskId?"selected":""}>${escapeHtml(taskId)}</option>`).join("");
   wrap.innerHTML = `
     <div class="row" style="justify-content:space-between; align-items:end; gap:10px; flex-wrap:wrap; margin-bottom:8px;">
-      <div class="muted small">Wordcloudy podle skupin pro stejnou úlohu.</div>
+      <div class="muted small">Odpovědi podle skupin pro stejnou úlohu.</div>
       <label class="filter-field" style="max-width:320px; margin:0;">
         <span>Úloha</span>
         <select id="groupsCompareWordcloudTaskSelect">${options}</select>
@@ -2437,11 +2457,36 @@ function renderGroupCompareWordcloudTab(groups) {
 
   const load = async () => {
     const taskId = $("#groupsCompareWordcloudTaskSelect")?.value || null;
-    const res = await apiCompareWordcloud(groups.map((g) => g.id), taskId);
+    const [res, groupAnswers] = await Promise.all([
+      apiCompareWordcloud(groups.map((g) => g.id), taskId),
+      Promise.all(groups.map((g) => apiGetGroupAnswers(g.id).catch(() => null))),
+    ]);
+
     const grid = $("#groupsCompareWordcloudGrid");
     if (!grid) return;
+
+    const summaries = groupAnswers.filter(Boolean).map((payload, idx) => {
+      const acc = Number(payload?.summary?.accuracy);
+      return {
+        groupId: groups[idx]?.id,
+        groupName: groups[idx]?.name ?? groups[idx]?.id,
+        accuracy: Number.isFinite(acc) ? acc : null,
+      };
+    });
+
+    const validAcc = summaries.map((s) => s.accuracy).filter((v) => Number.isFinite(v));
+    const globalAcc = validAcc.length ? validAcc.reduce((a, b) => a + b, 0) / validAcc.length : null;
+
     const byId = new Map((res?.groups ?? []).map((g) => [g.group_id, g.words ?? []]));
-    grid.innerHTML = groups.map((group) => `
+        const statsHtml = `
+      <div class="card" style="padding:10px; margin-bottom:10px;">
+        <div class="title">Průměrná správnost</div>
+        <div class="muted small" style="margin-top:6px;">Globálně: <b>${escapeHtml(fmtPercent(globalAcc))}</b></div>
+        <div class="muted small" style="margin-top:4px;">${summaries.map((s) => `${escapeHtml(s.groupName)}: ${escapeHtml(fmtPercent(s.accuracy))}`).join(" · ")}</div>
+      </div>
+    `;
+
+    grid.innerHTML = statsHtml + groups.map((group) => `
       <div class="card" style="padding:10px;">
         <div class="title">${escapeHtml(group.name ?? group.id)}</div>
         <div class="muted small" style="margin-bottom:6px;">${escapeHtml(group.id)}</div>
@@ -2881,7 +2926,7 @@ function renderGroupCompareModal() {
 
   renderGroupCompareSummaryTab(groups);
   renderGroupCompareTaskTab(groups);
-  renderGroupCompareWordcloudTab(groups);
+  renderGroupCompareAnswersTab(groups);
 }
 
 function openGroupCompareModal() {
@@ -3068,7 +3113,7 @@ function wireNavButtons() {
   $("#groupsCompareTabs")?.addEventListener("click", (e) => {
     const btn = e.target?.closest?.("[data-tab]");
     if (!btn) return;
-    state.groupCompareTab = btn.dataset.tab;
+    state.groupCompareTab = btn.dataset.tab === "wordcloud" ? "answers" : btn.dataset.tab;
     renderGroupCompareModal();
   });
 
