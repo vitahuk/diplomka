@@ -179,7 +179,11 @@ def _normalize_task_id(v: Any) -> Optional[str]:
     s = str(v).strip()
     return s if s else None
 
-def build_spatial_trace_for_user(df: pd.DataFrame, user_id: Optional[str] = None) -> Dict[str, Any]:
+def build_spatial_trace_for_user(
+    df: pd.DataFrame,
+    user_id: Optional[str] = None,
+    task_id: Optional[str] = None,
+) -> Dict[str, Any]:
     """
     Připraví spatial data pro Leaflet pro jednoho uživatele/session.
     Výstup:
@@ -199,14 +203,40 @@ def build_spatial_trace_for_user(df: pd.DataFrame, user_id: Optional[str] = None
     uid_col = get_user_id_column(data)
 
     normalized_user = None if user_id is None else str(user_id).strip()
+    normalized_task = None if task_id is None else str(task_id).strip()
     if uid_col and normalized_user:
         data = data[data[uid_col].astype(str).str.strip() == normalized_user]
+    
+    if normalized_task:
+        if "task" in data.columns:
+            data = data[data["task"].astype(str).str.strip() == normalized_task]
+        else:
+            current_task: Optional[str] = None
+            inferred_tasks: List[Optional[str]] = []
+            for _, row in data.iterrows():
+                event_name = str(row.get("event_name", "")).strip()
+                raw_detail = row.get("event_detail")
+                if event_name == "setting task":
+                    parsed = parse_event_detail(event_name, raw_detail)
+                    inferred = parsed.get("task_id")
+                    if isinstance(inferred, str) and inferred.strip():
+                        current_task = inferred.strip()
+                inferred_tasks.append(current_task)
+            data = data.copy()
+            data["_task_id_inferred"] = inferred_tasks
+            data = data[data["_task_id_inferred"].astype(str).str.strip() == normalized_task]
 
     data = data.copy()
     data["_timestamp"] = pd.to_numeric(data["timestamp"], errors="coerce")
     data = data[data["_timestamp"].notna()]
     if data.empty:
-        return {"userId": normalized_user or "", "track": {"points": []}, "popups": [], "movementEndpoints": {"start": None, "end": None}}
+        return {
+            "userId": normalized_user or "",
+            "taskId": normalized_task or "",
+            "track": {"points": []},
+            "popups": [],
+            "movementEndpoints": {"start": None, "end": None},
+        }
 
     data["_timestamp"] = data["_timestamp"].astype(int)
     data = data.sort_values(by=["_timestamp"], kind="stable")
@@ -266,6 +296,7 @@ def build_spatial_trace_for_user(df: pd.DataFrame, user_id: Optional[str] = None
 
     return {
         "userId": resolved_user_id or "",
+        "taskId": normalized_task or "",
         "track": {"points": track_points},
         "popups": popups,
         "movementEndpoints": {

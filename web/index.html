@@ -359,12 +359,79 @@
         </div>
 
         <div class="modal-body">
-          <div class="metrics" id="taskModalMetrics">
-            <div class="empty">
-              <div class="empty-title">Zatím nic</div>
-              <div class="muted small">Po kliknutí na úlohu se zde zobrazí její metriky.</div>
-            </div>
+          <div class="tab-row" id="taskModalTabs" role="tablist" aria-label="Detail úlohy">
+            <button class="tab-btn is-active" type="button" role="tab" data-tab="metrics" aria-selected="true">Metriky</button>
+            <button class="tab-btn" type="button" role="tab" data-tab="map" aria-selected="false">Mapa</button>
           </div>
+
+          <section class="tab-panel" data-panel="metrics">
+            <div class="metrics" id="taskModalMetrics">
+              <div class="empty">
+                <div class="empty-title">Zatím nic</div>
+                <div class="muted small">Po kliknutí na úlohu se zde zobrazí její metriky.</div>
+              </div>
+            </div>
+          </section>
+
+          <section class="tab-panel hidden" data-panel="map">
+            <div class="map-layout">
+              <section class="map-sidebar">
+                <div class="map-panel-title">Zobrazení vrstev</div>
+
+                <div class="map-option-grid">
+                  <label class="map-option-row" for="taskMapShowPoints">
+                    <input id="taskMapShowPoints" type="checkbox" checked />
+                    <span>Body (popupopen)</span>
+                  </label>
+                  <label class="map-option-row" for="taskMapShowTrajectory">
+                    <input id="taskMapShowTrajectory" type="checkbox" checked />
+                    <span>Trajektorie (moveend)</span>
+                  </label>
+                  <label class="map-option-row" for="taskMapShowEndpoints">
+                    <input id="taskMapShowEndpoints" type="checkbox" checked />
+                    <span>Začátek / konec</span>
+                  </label>
+                </div>
+
+                <div class="map-panel-title" style="margin-top:10px;">Barvy</div>
+                <div class="map-option-grid">
+                  <label class="filter-field" for="taskMapPointsColorInput">
+                    <span>Body</span>
+                    <input id="taskMapPointsColorInput" type="color" value="#4cc9f0" />
+                  </label>
+                  <label class="filter-field" for="taskMapLineColorInput">
+                    <span>Trajektorie</span>
+                    <input id="taskMapLineColorInput" type="color" value="#f72585" />
+                  </label>
+                </div>
+
+                <div class="map-panel-title" style="margin-top:8px;">Legenda</div>
+                <div class="map-legend" id="taskMapLegend">
+                  <div class="map-legend-row">
+                    <span class="map-legend-swatch" id="taskMapLegendPointSwatch"></span>
+                    <span>Body (popupopen)</span>
+                  </div>
+                  <div class="map-legend-row">
+                    <span class="map-legend-line" id="taskMapLegendLineSwatch"></span>
+                    <span>Trajektorie (moveend)</span>
+                  </div>
+                  <div class="map-legend-row">
+                    <span class="map-legend-swatch map-legend-swatch-endpoint" id="taskMapLegendEndpointSwatch"></span>
+                    <span>Začátek / konec</span>
+                  </div>
+                </div>
+
+                <div class="empty" id="taskMapDataPlaceholder">
+                  <div class="empty-title">Připraveno</div>
+                  <div class="muted small">Po otevření úlohy načteme mapová data.</div>
+                </div>
+              </section>
+
+              <section class="map-canvas-wrap">
+                <div id="taskLeafletMap" class="leaflet-map-canvas" aria-label="Interaktivní mapa úlohy"></div>
+              </section>
+            </div>
+          </section>
         </div>
 
         <div class="modal-foot">
@@ -644,7 +711,7 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="/static/app.js?v=19"></script>
+  <script src="/static/app.js?v=20"></script>
 </body>
 
 </html>

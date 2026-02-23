@@ -30,5 +30,6 @@ další konzultace:
 
 
 export CSV agregovaných statistik
-agregace - porovnání skupin na úrovni úloh
-přidat tlačítko "zrušit výběr" při volbě sessions do skupin
+
+příště jak k tomu sednu, tak musím udělat mapy pro jednotlivé úlohy každého uživatele. omezit to filtrem jen na úlohu, asi tam zobrazit docela v detailu eventy, popupy
+

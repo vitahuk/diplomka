@@ -105,6 +105,15 @@ const state = {
     endpointLayer: null,
     isInitialized: false,
   },
+  taskModalTab: "metrics",
+  taskMap: {
+    leafletMap: null,
+    baseLayers: null,
+    pointsLayer: null,
+    trajectoryLayer: null,
+    endpointLayer: null,
+    isInitialized: false,
+  },
 };
 
 function normalizeTestId(value) {
@@ -298,8 +307,9 @@ async function apiGetSessionEvents(sessionId) {
   return apiGet(`/api/sessions/${encodeURIComponent(sessionId)}/events`);
 }
 
-async function apiGetSessionSpatialTrace(sessionId) {
-  return apiGet(`/api/sessions/${encodeURIComponent(sessionId)}/spatial-trace`);
+async function apiGetSessionSpatialTrace(sessionId, taskId = null) {
+  const query = taskId ? `?task_id=${encodeURIComponent(taskId)}` : "";
+  return apiGet(`/api/sessions/${encodeURIComponent(sessionId)}/spatial-trace${query}`);
 }
 
 // ===== Rendering: metrics blocks =====
@@ -849,6 +859,7 @@ function renderTasksList() {
 // ===== Modal (task metrics pop-up) =====
 async function openTaskModal(taskId) {
   state.selectedTaskId = taskId;
+  state.taskModalTab = "metrics";
 
   const modal = $("#taskMetricsModal");
   const subtitle = $("#taskModalSubtitle");
@@ -860,7 +871,6 @@ async function openTaskModal(taskId) {
     subtitle.textContent = `Session: ${s?.session_id ?? "—"} · Úloha: ${taskId}`;
   }
 
-  // show immediately with loading state
   if (metrics) {
     metrics.innerHTML = `
       <div class="empty">
@@ -869,9 +879,26 @@ async function openTaskModal(taskId) {
       </div>
     `;
   }
+
+  renderTaskModalTabs();
   show(modal);
 
-  if (!s?.session_id) return;
+  ensureTaskMapInitialized();
+  clearTaskMapData();
+  syncTaskMapLegend();
+  if (state.taskMap.leafletMap) {
+    setTimeout(() => state.taskMap.leafletMap.invalidateSize(), 50);
+  }
+
+  if (!s?.session_id) {
+    setTaskMapPlaceholderStatus({ title: "Vyber session", detail: "Bez vybrané session nelze načíst mapová data." });
+    return;
+  }
+
+  loadTaskSpatialTraceIntoMap(s.session_id, taskId).catch((e) => {
+    clearTaskMapData();
+    setTaskMapPlaceholderStatus({ title: "Chyba při načítání dat", detail: e?.message ?? String(e), isError: true });
+  });
 
   try {
     const m = await apiGetTaskMetrics(s.session_id, taskId);
@@ -894,6 +921,185 @@ async function openTaskModal(taskId) {
 
 function closeTaskModal() {
   hide($("#taskMetricsModal"));
+}
+
+function getTaskMapControlsState() {
+  return {
+    showPoints: $("#taskMapShowPoints")?.checked ?? true,
+    showTrajectory: $("#taskMapShowTrajectory")?.checked ?? true,
+    showEndpoints: $("#taskMapShowEndpoints")?.checked ?? true,
+    pointsColor: $("#taskMapPointsColorInput")?.value ?? "#4cc9f0",
+    lineColor: $("#taskMapLineColorInput")?.value ?? "#f72585",
+  };
+}
+
+function syncTaskMapLegend() {
+  const controls = getTaskMapControlsState();
+  const pointSwatch = $("#taskMapLegendPointSwatch");
+  const lineSwatch = $("#taskMapLegendLineSwatch");
+  const endpointSwatch = $("#taskMapLegendEndpointSwatch");
+  if (pointSwatch) {
+    pointSwatch.style.background = controls.pointsColor;
+    pointSwatch.style.opacity = controls.showPoints ? "1" : ".35";
+  }
+  if (lineSwatch) {
+    lineSwatch.style.borderTopColor = controls.lineColor;
+    lineSwatch.style.opacity = controls.showTrajectory ? "1" : ".35";
+  }
+  if (endpointSwatch) endpointSwatch.style.opacity = controls.showEndpoints ? "1" : ".35";
+}
+
+function applyTaskMapLayerStyles() {
+  const controls = getTaskMapControlsState();
+  const pointsLayer = state.taskMap.pointsLayer;
+  const trajectoryLayer = state.taskMap.trajectoryLayer;
+  const endpointLayer = state.taskMap.endpointLayer;
+
+  if (pointsLayer?.setStyle) {
+    pointsLayer.setStyle({ color: controls.pointsColor, fillColor: controls.pointsColor, fillOpacity: 0.9, radius: 6, weight: 1 });
+  }
+  if (trajectoryLayer?.setStyle) {
+    trajectoryLayer.setStyle({ color: controls.lineColor, weight: 4, opacity: 0.9 });
+  }
+  if (endpointLayer?.setStyle) {
+    endpointLayer.setStyle({ color: "#ff9f1c", fillColor: "#ff9f1c", fillOpacity: 0.95, radius: 8, weight: 2 });
+  }
+
+  const map = state.taskMap.leafletMap;
+  if (map && pointsLayer) {
+    const hasLayer = map.hasLayer(pointsLayer);
+    if (controls.showPoints && !hasLayer) map.addLayer(pointsLayer);
+    if (!controls.showPoints && hasLayer) map.removeLayer(pointsLayer);
+  }
+  if (map && trajectoryLayer) {
+    const hasLayer = map.hasLayer(trajectoryLayer);
+    if (controls.showTrajectory && !hasLayer) map.addLayer(trajectoryLayer);
+    if (!controls.showTrajectory && hasLayer) map.removeLayer(trajectoryLayer);
+  }
+  if (map && endpointLayer) {
+    const hasLayer = map.hasLayer(endpointLayer);
+    if (controls.showEndpoints && !hasLayer) map.addLayer(endpointLayer);
+    if (!controls.showEndpoints && hasLayer) map.removeLayer(endpointLayer);
+  }
+
+  syncTaskMapLegend();
+}
+
+function setTaskMapPlaceholderStatus({ title, detail, isError = false }) {
+  const box = $("#taskMapDataPlaceholder");
+  if (!box) return;
+  box.innerHTML = `<div class="empty-title">${escapeHtml(title ?? "Stav mapy")}</div><div class="muted small${isError ? "" : ""}">${escapeHtml(detail ?? "")}</div>`;
+}
+
+function clearTaskMapData() {
+  state.taskMap.pointsLayer?.clearLayers?.();
+  state.taskMap.trajectoryLayer?.clearLayers?.();
+  state.taskMap.endpointLayer?.clearLayers?.();
+}
+
+function ensureTaskMapInitialized() {
+  if (state.taskMap.isInitialized) return;
+  if (typeof L === "undefined") return;
+
+  const mapEl = $("#taskLeafletMap");
+  if (!mapEl) return;
+
+  const leafletMap = L.map(mapEl, { center: [49.8175, 15.473], zoom: 7, zoomControl: true });
+
+  const osmStandard = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 20,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  });
+  const cartoVoyager = L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+    maxZoom: 20,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  });
+  const opentopo = L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
+    maxZoom: 17,
+    attribution: 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="https://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
+  });
+  osmStandard.addTo(leafletMap);
+
+  const baseLayers = { "OpenStreetMap": osmStandard, "CARTO Voyager": cartoVoyager, "OpenTopoMap": opentopo };
+
+  const pointsLayer = L.geoJSON({ type: "FeatureCollection", features: [] }, {
+    pointToLayer: (_feature, latlng) => L.circleMarker(latlng, { radius: 6, color: "#4cc9f0", fillColor: "#4cc9f0", fillOpacity: 0.9, weight: 1 }),
+  }).addTo(leafletMap);
+
+  const trajectoryLayer = L.geoJSON({ type: "FeatureCollection", features: [] }, { style: { color: "#f72585", weight: 4, opacity: 0.9 } }).addTo(leafletMap);
+
+  const endpointLayer = L.geoJSON({ type: "FeatureCollection", features: [] }, {
+    pointToLayer: (_feature, latlng) => L.circleMarker(latlng, { radius: 8, color: "#ff9f1c", fillColor: "#ff9f1c", fillOpacity: 0.95, weight: 2 }),
+  }).addTo(leafletMap);
+
+  L.control.layers(baseLayers, { "Body": pointsLayer, "Trajektorie": trajectoryLayer, "Začátek/konec": endpointLayer }, { collapsed: false }).addTo(leafletMap);
+
+  state.taskMap = { leafletMap, baseLayers, pointsLayer, trajectoryLayer, endpointLayer, isInitialized: true };
+  applyTaskMapLayerStyles();
+}
+
+function fitTaskMapToRenderedData() {
+  const map = state.taskMap.leafletMap;
+  const pointsLayer = state.taskMap.pointsLayer;
+  const trajectoryLayer = state.taskMap.trajectoryLayer;
+  const endpointLayer = state.taskMap.endpointLayer;
+  if (!map || !pointsLayer || !trajectoryLayer || !endpointLayer) return;
+  const group = L.featureGroup([pointsLayer, trajectoryLayer, endpointLayer]);
+  const bounds = group.getBounds();
+  if (bounds.isValid()) map.fitBounds(bounds, { padding: [28, 28], maxZoom: 17 });
+}
+
+function renderTaskSpatialTraceToMap(spatialPayload) {
+  ensureTaskMapInitialized();
+  clearTaskMapData();
+
+  const spatial = spatialPayload?.spatial ?? { track: { points: [] }, popups: [] };
+  state.taskMap.pointsLayer?.addData?.(buildPointsFeatureCollection(spatial));
+  state.taskMap.trajectoryLayer?.addData?.(buildTrackFeatureCollection(spatial));
+  state.taskMap.endpointLayer?.addData?.(buildEndpointFeatureCollection(spatial));
+
+  state.taskMap.pointsLayer?.eachLayer?.((layer) => {
+    const name = layer?.feature?.properties?.name ?? "—";
+    const ts = layer?.feature?.properties?.timestamp;
+    const label = Number.isFinite(Number(ts)) ? `${name} (${Number(ts)})` : String(name);
+    layer.bindTooltip(label, { direction: "top", offset: [0, -8] });
+  });
+  state.taskMap.endpointLayer?.eachLayer?.((layer) => {
+    const kind = layer?.feature?.properties?.kind ?? "Bod";
+    const ts = layer?.feature?.properties?.timestamp;
+    const label = Number.isFinite(Number(ts)) ? `${kind} (${Number(ts)})` : String(kind);
+    layer.bindTooltip(label, { direction: "top", offset: [0, -8] });
+  });
+
+  applyTaskMapLayerStyles();
+  fitTaskMapToRenderedData();
+
+  const pointCount = Array.isArray(spatial?.popups) ? spatial.popups.length : 0;
+  const trackCount = Array.isArray(spatial?.track?.points) ? spatial.track.points.length : 0;
+  const endpoints = spatial?.movementEndpoints ?? {};
+  const endpointCount = (endpoints?.start ? 1 : 0) + (endpoints?.end ? 1 : 0);
+  setTaskMapPlaceholderStatus({ title: "Data načtena", detail: `Body (popupopen): ${pointCount} · Body trajektorie (moveend): ${trackCount} · Začátek/konec: ${endpointCount}` });
+}
+
+async function loadTaskSpatialTraceIntoMap(sessionId, taskId) {
+  setTaskMapPlaceholderStatus({ title: "Načítám mapová data…", detail: "Probíhá příprava trajektorie a popup bodů pro úlohu." });
+  const payload = await apiGetSessionSpatialTrace(sessionId, taskId);
+  renderTaskSpatialTraceToMap(payload);
+}
+
+function renderTaskModalTabs() {
+  $$("#taskModalTabs .tab-btn").forEach((btn) => {
+    const active = btn.dataset.tab === state.taskModalTab;
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  $$("#taskMetricsModal [data-panel]").forEach((panel) => {
+    panel.classList.toggle("hidden", panel.dataset.panel !== state.taskModalTab);
+  });
+
+  if (state.taskModalTab === "map" && state.taskMap.leafletMap) {
+    setTimeout(() => state.taskMap.leafletMap.invalidateSize(), 50);
+  }
 }
 
 // ===== NEW: Timeline (modal) =====
@@ -2746,6 +2952,13 @@ function wireNavButtons() {
   $("#openMapModalBtn")?.addEventListener("click", () => {
     openSessionMapModal();
   });
+
+  $("#taskModalTabs")?.addEventListener("click", (e) => {
+    const btn = e.target?.closest?.("[data-tab]");
+    if (!btn) return;
+    state.taskModalTab = btn.dataset.tab === "map" ? "map" : "metrics";
+    renderTaskModalTabs();
+  });
 }
 
 function wireTestControls() {
@@ -2801,6 +3014,20 @@ function wireModal() {
     if (!el) return;
     const evt = sel.includes("Color") ? "input" : "change";
     el.addEventListener(evt, applyMapLayerStyles);
+  });
+
+  const taskMapControlIds = [
+    "#taskMapShowPoints",
+    "#taskMapShowTrajectory",
+    "#taskMapShowEndpoints",
+    "#taskMapPointsColorInput",
+    "#taskMapLineColorInput",
+  ];
+  taskMapControlIds.forEach((sel) => {
+    const el = $(sel);
+    if (!el) return;
+    const evt = sel.includes("Color") ? "input" : "change";
+    el.addEventListener(evt, applyTaskMapLayerStyles);
   });
 
   $("#closeGroupsCompareBtn")?.addEventListener("click", closeGroupCompareModal);
