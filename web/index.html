@@ -118,6 +118,7 @@
           <div class="tab-row" id="settingsTabs" role="tablist" aria-label="Nastavení testu">
             <button class="tab-btn is-active" type="button" role="tab" data-tab="answers" aria-selected="true">Správné odpovědi</button>
             <button class="tab-btn" type="button" role="tab" data-tab="sessions" aria-selected="false">Editace nahraných session</button>
+            <button class="tab-btn" type="button" role="tab" data-tab="user-test" aria-selected="false">Nastavení uživatelského testu</button>
           </div>
 
           <section class="tab-panel" data-panel="answers">
@@ -175,6 +176,32 @@
               </div>
             </div>
           </section>
+          <section class="tab-panel hidden" data-panel="user-test">
+            <div class="card-head">
+              <h2>Nastavení uživatelského testu</h2>
+              <div class="muted small">Uprav název testu, poznámku nebo test trvale smaž.</div>
+            </div>
+
+            <div class="filter-panel">
+              <label class="filter-field">
+                <span>Název uživatelského testu</span>
+                <input id="settingsUserTestNameInput" type="text" placeholder="např. Test pilotního běhu" />
+              </label>
+              <label class="filter-field">
+                <span>Poznámka</span>
+                <textarea id="settingsUserTestNoteInput" class="text-area-input" rows="8" placeholder="Poznámka k uživatelskému testu..."></textarea>
+              </label>
+            </div>
+
+            <div class="card-foot foot-split">
+              <div class="muted small" id="settingsUserTestStatus">—</div>
+              <button class="btn" id="settingsSaveUserTestBtn" type="button">Uložit změny</button>
+            </div>
+
+            <div class="card-foot" style="display:flex; justify-content:flex-end;">
+              <button class="btn btn-danger" id="settingsDeleteUserTestBtn" type="button">Smazat uživatelský test</button>
+            </div>
+          </section>
         </section>
       </section>
       
@@ -192,7 +219,7 @@
           </div>
           <div class="modal-foot">
             <button class="btn btn-ghost" id="settingsDeleteConfirmCancelBtn" type="button">Ne, zpět</button>
-            <button class="btn btn-danger" id="settingsDeleteConfirmOkBtn" type="button">Ano, smazat tyto sessions</button>
+            <button class="btn btn-danger" id="settingsDeleteConfirmOkBtn" type="button">Ano, potvrdit</button>
           </div>
         </div>
       </div>
@@ -672,12 +699,13 @@
         <button class="icon-btn" id="closeGroupEditBtn" type="button" aria-label="Zavřít">✕</button>
       </div>
       <div class="modal-body">
-        <label class="filter-field">
-          <span>Název skupiny</span>
-          <input id="groupEditNameInput" type="text" />
-        </label>
-        <div class="muted small">Přepsání názvu a uložení změn aktualizuje název skupiny.</div>
-        <div class="filter-panel" style="margin-top:10px;">
+        <div class="tab-row" id="groupEditTabs" role="tablist" aria-label="Editace skupiny">
+          <button class="tab-btn is-active" type="button" role="tab" data-tab="sessions">Editace sessions</button>
+          <button class="tab-btn" type="button" role="tab" data-tab="settings">Nastavení skupiny</button>
+        </div>
+
+        <section data-group-edit-panel="sessions">
+          <div class="filter-panel" style="margin-top:10px;">
           <label class="filter-field">
             <span>Vyhledat podle názvu (user/session)</span>
             <input id="groupEditSearchInput" type="search" placeholder="např. 12345 nebo session_01" />
@@ -711,6 +739,24 @@
           </div>
         </div>
         <div class="list" id="groupEditSessionsList"></div>
+        </section>
+
+        <section class="hidden" data-group-edit-panel="settings">
+          <div class="filter-panel" style="margin-top:10px;">
+            <label class="filter-field">
+              <span>Název skupiny</span>
+              <input id="groupEditNameInput" type="text" />
+            </label>
+            <label class="filter-field">
+              <span>Poznámka</span>
+              <textarea id="groupEditNoteInput" class="text-area-input" rows="8" placeholder="Poznámka ke skupině..."></textarea>
+            </label>
+            <div style="display:flex; justify-content:flex-end; margin-top:4px;">
+              <button class="btn btn-danger" id="deleteGroupBtn" type="button">Smazat skupinu</button>
+            </div>
+          </div>
+        </section>
+
         <div class="muted small" id="groupEditStatus" style="margin-top:8px;"></div>
       </div>
       <div class="modal-foot">
@@ -776,7 +822,7 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="/static/app.js?v=22"></script>
+  <script src="/static/app.js?v=23"></script>
 </body>
 
 </html>

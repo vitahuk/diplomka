@@ -84,6 +84,7 @@ const state = {
   groupTaskCompareSort: { key: "avgDurationMs", direction: "desc" },
   isGroupUsersExpanded: false,
   groupEditSessionIds: [],
+  groupEditTab: "sessions",
   groupEditFilters: {
     gender: "",
     ageMin: "",
@@ -114,6 +115,7 @@ const state = {
     userIdQuery: "",
   },
   settingsDeleteTarget: null,
+  testSettings: {},
   map: {
     leafletMap: null,
     baseLayers: null,
@@ -306,6 +308,34 @@ async function apiDeleteAllSessions(testId) {
   return res.json();
 }
 
+async function apiGetTestSettings(testId) {
+  return apiGet(`/api/tests/${encodeURIComponent(testId)}/settings`);
+}
+
+async function apiUpdateTestSettings(testId, payload) {
+  const res = await fetch(`/api/tests/${encodeURIComponent(testId)}/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    let err = {};
+    try { err = await res.json(); } catch { }
+    throw new Error(err.detail ?? res.statusText);
+  }
+  return res.json();
+}
+
+async function apiDeleteTest(testId) {
+  const res = await fetch(`/api/tests/${encodeURIComponent(testId)}`, { method: "DELETE" });
+  if (!res.ok) {
+    let err = {};
+    try { err = await res.json(); } catch { }
+    throw new Error(err.detail ?? res.statusText);
+  }
+  return res.json();
+}
+
 async function apiGetTaskMetrics(sessionId, taskId) {
   return apiGet(`/api/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}/metrics`);
 }
@@ -339,6 +369,30 @@ async function apiUpdateGroup(groupId, payload) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+  if (!res.ok) {
+    let err = {};
+    try { err = await res.json(); } catch { }
+    throw new Error(err.detail ?? res.statusText);
+  }
+  return res.json();
+}
+
+async function apiUpdateGroupSettings(groupId, payload) {
+  const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}/settings`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    let err = {};
+    try { err = await res.json(); } catch { }
+    throw new Error(err.detail ?? res.statusText);
+  }
+  return res.json();
+}
+
+async function apiDeleteGroup(groupId) {
+  const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}`, { method: "DELETE" });
   if (!res.ok) {
     let err = {};
     try { err = await res.json(); } catch { }
@@ -459,10 +513,12 @@ function renderTestsList() {
 
   listEl.innerHTML = state.tests.map((testId) => {
     const selected = testId === state.selectedTestId ? "is-selected" : "";
+    const customName = String(state.testSettings?.[testId]?.name ?? "").trim();
+    const displayName = customName || testId;
     return `
       <div class="list-item ${selected}" data-test="${escapeHtml(testId)}">
         <div class="row">
-          <div class="title">${escapeHtml(testId)}</div>
+          <div class="title">${escapeHtml(displayName)}</div>
         </div>
         <div class="muted small">Test pro práci se sessions a nastavením správných odpovědí.</div>
         <div class="row actions">
@@ -491,6 +547,7 @@ function renderTestsList() {
       if (action === "settings") {
         setPage("settings");
         await loadAnswersForSelectedTest();
+        await loadTestSettingsForSelectedTest();
         renderSettingsPage();
       } else if (action === "open") {
         setPage("individual");
@@ -789,6 +846,25 @@ async function loadAnswersForSelectedTest() {
   }
 }
 
+async function loadTestSettingsForSelectedTest() {
+  const testId = state.selectedTestId ?? "TEST";
+  try {
+    const out = await apiGetTestSettings(testId);
+    state.testSettings[testId] = {
+      name: String(out?.name ?? "").trim(),
+      note: String(out?.note ?? ""),
+    };
+  } catch {
+    state.testSettings[testId] = state.testSettings[testId] ?? { name: "", note: "" };
+  }
+}
+
+function getCurrentTestDisplayName() {
+  const testId = state.selectedTestId ?? "TEST";
+  const saved = state.testSettings?.[testId]?.name;
+  return String(saved ?? "").trim() || testId;
+}
+
 function getCorrectAnswerLocal(testId, taskId) {
   return state.correctAnswers?.[testId]?.[taskId];
 }
@@ -908,7 +984,7 @@ function renderSettingsPage() {
   const testId = state.selectedTestId ?? "TEST";
 
   const nameEl = $("#settingsTestName");
-  if (nameEl) nameEl.textContent = testId;
+  if (nameEl) nameEl.textContent = getCurrentTestDisplayName();
 
   const tabs = $$("#settingsTabs .tab-btn");
   tabs.forEach((btn) => {
@@ -922,6 +998,12 @@ function renderSettingsPage() {
     const key = panel.dataset.panel;
     panel.classList.toggle("hidden", key !== state.settingsTab);
   });
+
+  const userTestNameEl = $("#settingsUserTestNameInput");
+  const userTestNoteEl = $("#settingsUserTestNoteInput");
+  const userSettings = state.testSettings?.[testId] ?? { name: "", note: "" };
+  if (userTestNameEl) userTestNameEl.value = String(userSettings.name ?? "");
+  if (userTestNoteEl) userTestNoteEl.value = String(userSettings.note ?? "");
 
   const listEl = $("#settingsTasksList");
   if (listEl) {
@@ -991,6 +1073,16 @@ function openSettingsDeleteConfirmModal(mode) {
   if (mode === "all") count = sessions.length;
   else count = selectedIds.length;
 
+  if (mode === "test") {
+    state.settingsDeleteTarget = { mode: "test", count: 1 };
+    const textEl = $("#settingsDeleteConfirmText");
+    if (textEl) {
+      textEl.textContent = "Chystáte se smazat celý uživatelský test včetně všech sessions, skupin, odpovědí a dalších navázaných dat. Opravdu si přejete pokračovat?";
+    }
+    show($("#settingsDeleteConfirmModal"));
+    return;
+  }
+
   if (!count) {
     const statusEl = $("#settingsSessionStatus");
     if (statusEl) statusEl.textContent = mode === "all" ? "V testu nejsou žádné sessions ke smazání." : "Vyber nejprve aspoň jednu session.";
@@ -1024,6 +1116,26 @@ async function confirmDeleteSettingsSessions() {
   const statusEl = $("#settingsSessionStatus");
 
   try {
+    if (target.mode === "test") {
+      const deletingTestId = state.selectedTestId ?? "TEST";
+      if (statusEl) statusEl.textContent = "Mazání uživatelského testu…";
+      await apiDeleteTest(deletingTestId);
+      state.testSettings[deletingTestId] = { name: "", note: "" };
+      state.tests = (state.tests ?? []).filter((id) => id !== deletingTestId);
+      if (!state.tests.length) state.tests = ["TEST"];
+      saveTestsToStorage(state.tests);
+      selectTest(state.tests[0]);
+      await refreshSessions();
+      await refreshGroups();
+      renderTests();
+      renderSettingsPage();
+      renderSessionsList();
+      renderTestAggMetrics();
+      if (statusEl) statusEl.textContent = "Uživatelský test byl smazán.";
+      setPage("dashboard");
+      return;
+    }
+
     if (statusEl) statusEl.textContent = "Mazání session…";
     if (target.mode === "all") {
       await apiDeleteAllSessions(testId);
@@ -1043,6 +1155,27 @@ async function confirmDeleteSettingsSessions() {
     if (statusEl) statusEl.textContent = `Chyba mazání: ${e?.message ?? e}`;
   } finally {
     closeSettingsDeleteConfirmModal();
+  }
+}
+
+async function saveUserTestSettings() {
+  const testId = state.selectedTestId ?? "TEST";
+  const nameInput = $("#settingsUserTestNameInput");
+  const noteInput = $("#settingsUserTestNoteInput");
+  const statusEl = $("#settingsUserTestStatus");
+
+  const name = String(nameInput?.value ?? "").trim();
+  const note = String(noteInput?.value ?? "");
+
+  try {
+    if (statusEl) statusEl.textContent = "Ukládám nastavení testu…";
+    const out = await apiUpdateTestSettings(testId, { name, note });
+    state.testSettings[testId] = { name: String(out?.name ?? ""), note: String(out?.note ?? "") };
+    renderTestsList();
+    renderSettingsPage();
+    if (statusEl) statusEl.textContent = "Uloženo.";
+  } catch (e) {
+    if (statusEl) statusEl.textContent = `Chyba uložení: ${e?.message ?? e}`;
   }
 }
 
@@ -3022,15 +3155,30 @@ function openGroupEditModal() {
 
   const selected = new Set(group.session_ids ?? []);
   state.groupEditSessionIds = Array.from(selected);
+  state.groupEditTab = "sessions";
   state.groupEditFilters = { gender: "", ageMin: "", ageMax: "", occupation: "", nationality: "", query: "" };
 
   const nameInput = $("#groupEditNameInput");
   if (nameInput) nameInput.value = group.name ?? "";
+  const noteInput = $("#groupEditNoteInput");
+  if (noteInput) noteInput.value = String(group.note ?? "");
 
   const statusEl = $("#groupEditStatus");
   if (statusEl) statusEl.textContent = "";
+  renderGroupEditPanels();
   renderGroupEditSessionsList();
   show($("#groupEditModal"));
+}
+
+function renderGroupEditPanels() {
+  $$("#groupEditTabs .tab-btn").forEach((btn) => {
+    const active = btn.dataset.tab === state.groupEditTab;
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  $$("#groupEditModal [data-group-edit-panel]").forEach((panel) => {
+    panel.classList.toggle("hidden", panel.dataset.groupEditPanel !== state.groupEditTab);
+  });
 }
 
 function closeGroupEditModal() {
@@ -3153,11 +3301,35 @@ async function saveGroupEdit() {
   try {
     if (statusEl) statusEl.textContent = "Ukládám změny…";
     await apiUpdateGroup(group.id, {
-      name: String($("#groupEditNameInput")?.value ?? "").trim() || group.name,
+      name: group.name,
       test_id: group.test_id,
       session_ids: state.groupEditSessionIds ?? [],
     });
+    const updatedSettings = await apiUpdateGroupSettings(group.id, {
+      name: String($("#groupEditNameInput")?.value ?? "").trim() || group.name,
+      note: String($("#groupEditNoteInput")?.value ?? ""),
+    });
     await refreshGroups();
+    const idx = state.groups.findIndex((x) => x.id === group.id);
+    if (idx >= 0 && updatedSettings?.group) state.groups[idx] = { ...state.groups[idx], ...updatedSettings.group };
+    renderGroupsPage();
+    closeGroupEditModal();
+  } catch (e) {
+    if (statusEl) statusEl.textContent = `Chyba: ${e?.message ?? e}`;
+  }
+}
+
+async function deleteCurrentGroup() {
+  const group = getSelectedGroup();
+  const statusEl = $("#groupEditStatus");
+  if (!group) return;
+  if (!window.confirm(`Opravdu chcete smazat skupinu „${group.name}“?`)) return;
+
+  try {
+    if (statusEl) statusEl.textContent = "Mažu skupinu…";
+    await apiDeleteGroup(group.id);
+    await refreshGroups();
+    state.selectedGroupId = null;
     renderGroupsPage();
     closeGroupEditModal();
   } catch (e) {
@@ -3205,7 +3377,7 @@ const sessionsForTest = getSessionsForSelectedTest();
   renderTasksList();
 
   if (!$("#view-settings")?.classList.contains("hidden")) {
-    loadAnswersForSelectedTest().then(() => renderSettingsPage());
+    Promise.all([loadAnswersForSelectedTest(), loadTestSettingsForSelectedTest()]).then(() => renderSettingsPage());
   }
 
   if (!$("#view-groups")?.classList.contains("hidden")) {
@@ -3312,14 +3484,21 @@ function wireNavButtons() {
 
   $("#settingsReloadBtn")?.addEventListener("click", async () => {
     await loadAnswersForSelectedTest();
+    await loadTestSettingsForSelectedTest();
     renderSettingsPage();
   });
 
   $("#settingsTabs")?.addEventListener("click", (e) => {
     const btn = e.target?.closest?.("[data-tab]");
     if (!btn) return;
-    state.settingsTab = btn.dataset.tab === "sessions" ? "sessions" : "answers";
+    const tab = btn.dataset.tab;
+    state.settingsTab = (tab === "sessions" || tab === "user-test") ? tab : "answers";
     renderSettingsPage();
+  });
+
+  $("#settingsSaveUserTestBtn")?.addEventListener("click", saveUserTestSettings);
+  $("#settingsDeleteUserTestBtn")?.addEventListener("click", () => {
+    openSettingsDeleteConfirmModal("test");
   });
 
   $("#settingsDeleteSelectedBtn")?.addEventListener("click", () => {
@@ -3341,7 +3520,16 @@ function wireNavButtons() {
     renderGroupCompareModal();
   });
 
-  // NEW: Timeline button (on "Úlohy v session" page, right column)
+  $("#groupEditTabs")?.addEventListener("click", (e) => {
+    const btn = e.target?.closest?.("[data-tab]");
+    if (!btn) return;
+    state.groupEditTab = btn.dataset.tab === "settings" ? "settings" : "sessions";
+    renderGroupEditPanels();
+  });
+
+  $("#deleteGroupBtn")?.addEventListener("click", deleteCurrentGroup);
+
+  //Timeline button (on "Úlohy v session" page, right column)
   $("#openTimelineBtn")?.addEventListener("click", () => {
     openTimelineModal();
   });

@@ -197,6 +197,18 @@ p {
   font-size: 14px;
 }
 
+.text-area-input {
+  border: 1px solid rgba(34, 48, 74, .85);
+  border-radius: 10px;
+  background: rgba(7, 10, 20, .35);
+  color: var(--text);
+  padding: 8px 10px;
+  font-size: 14px;
+  resize: vertical;
+  min-height: 120px;
+  font-family: inherit;
+}
+
 .filter-field input::placeholder {
   color: rgba(159, 169, 195, .7);
 }

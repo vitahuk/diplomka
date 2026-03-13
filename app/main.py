@@ -19,6 +19,7 @@ import pandas as pd
 from app.storage import STORE, SessionData, ensure_upload_dir
 from app.storage import get_test_answers, set_test_answer
 from app.storage import list_groups, upsert_group, delete_sessions, delete_all_sessions_for_test
+from app.storage import get_test_settings, update_test_settings, delete_test, update_group_settings, delete_group
 from app.parsing.maptrack_csv import (
     parse_session,
     parse_session_df,
@@ -758,6 +759,40 @@ def api_put_test_answer(
     return {"test_id": test_id, "answers": updated}
 
 
+@app.get("/api/tests/{test_id}/settings")
+def api_get_test_settings(test_id: str):
+    settings = get_test_settings(test_id)
+    return {
+        "test_id": test_id,
+        "name": settings.get("name"),
+        "note": settings.get("note"),
+    }
+
+
+@app.put("/api/tests/{test_id}/settings")
+def api_update_test_settings(test_id: str, payload: dict = Body(...)):
+    name = payload.get("name")
+    note = payload.get("note")
+
+    updated = update_test_settings(test_id=test_id, name=name, note=note)
+    return {
+        "test_id": test_id,
+        "name": updated.get("name"),
+        "note": updated.get("note"),
+    }
+
+
+@app.delete("/api/tests/{test_id}")
+def api_delete_test(test_id: str):
+    deleted = delete_test(test_id=test_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Uživatelský test nenalezen.")
+    return {
+        "test_id": test_id,
+        "deleted": True,
+    }
+
+
 @app.get("/api/groups")
 def api_list_groups(test_id: Optional[str] = None):
     groups = list_groups(test_id=test_id)
@@ -784,6 +819,7 @@ def api_list_groups(test_id: Optional[str] = None):
             "id": g.get("id"),
             "test_id": g.get("test_id"),
             "name": g.get("name"),
+            "note": g.get("note"),
             "session_ids": session_ids,
             "sessions": sessions_out,
         })
@@ -844,6 +880,29 @@ def api_group_wordcloud(group_id: str, task_id: Optional[str] = None):
         "task_id": task_id,
         "words": words,
     }
+
+
+@app.put("/api/groups/{group_id}/settings")
+def api_update_group_settings(group_id: str, payload: dict = Body(...)):
+    name = payload.get("name")
+    note = payload.get("note")
+    try:
+        updated = update_group_settings(group_id=group_id, name=name, note=note)
+    except ValueError as e:
+        message = str(e)
+        if message == "Skupina nenalezena.":
+            raise HTTPException(status_code=404, detail=message)
+        raise HTTPException(status_code=400, detail=message)
+
+    return {"group": updated}
+
+
+@app.delete("/api/groups/{group_id}")
+def api_delete_group(group_id: str):
+    deleted = delete_group(group_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Skupina nenalezena.")
+    return {"group_id": group_id, "deleted": True}
 
 
 @app.post("/api/groups/compare/wordcloud")

@@ -7,7 +7,7 @@ import json
 import os
 import threading
 
-from sqlalchemy import String, Text, create_engine, select, delete, event
+from sqlalchemy import String, Text, create_engine, select, delete, event, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
 from sqlalchemy.types import JSON
 from sqlalchemy.schema import ForeignKey
@@ -39,6 +39,7 @@ class TestRecord(Base):
 
     id: Mapped[str] = mapped_column(String(100), primary_key=True)
     name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
 
 
 class TaskRecord(Base):
@@ -91,6 +92,7 @@ class GroupRecord(Base):
         default="TEST",
     )
     name: Mapped[str] = mapped_column(String(255))
+    note: Mapped[Optional[str]] = mapped_column(Text(), nullable=True)
 
     session_links: Mapped[List["GroupSessionRecord"]] = relationship(
         back_populates="group",
@@ -275,7 +277,20 @@ def _migrate_json_seed_data() -> None:
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    _ensure_schema_updates()
     _migrate_json_seed_data()
+
+def _ensure_schema_updates() -> None:
+    inspector = inspect(engine)
+
+    test_columns = {col["name"] for col in inspector.get_columns("tests")}
+    group_columns = {col["name"] for col in inspector.get_columns("groups")}
+
+    with engine.begin() as conn:
+        if "note" not in test_columns:
+            conn.execute(text("ALTER TABLE tests ADD COLUMN note TEXT"))
+        if "note" not in group_columns:
+            conn.execute(text("ALTER TABLE groups ADD COLUMN note TEXT"))
 
 
 class DatabaseStore:
@@ -480,6 +495,7 @@ def list_groups(test_id: Optional[str] = None) -> List[Dict[str, Any]]:
                     "id": group.id,
                     "test_id": group.test_id,
                     "name": group.name,
+                    "note": group.note,
                     "session_ids": session_ids,
                 }
             )
@@ -544,10 +560,99 @@ def upsert_group(group_id: str, test_id: str, name: str, session_ids: List[str])
             db.add(GroupSessionRecord(group_id=normalized_group_id, session_id=sid))
 
         db.commit()
+    
+    with SessionLocal() as db:
+        latest = db.get(GroupRecord, normalized_group_id)
+        note = latest.note if latest else None
 
     return {
         "id": normalized_group_id,
         "test_id": normalized_test_id,
         "name": normalized_name,
+        "note": note,
         "session_ids": deduplicated_session_ids,
     }
+
+
+def get_test_settings(test_id: str) -> Dict[str, Optional[str]]:
+    normalized_test_id = str(test_id or "TEST").strip() or "TEST"
+    with SessionLocal() as db:
+        _ensure_test(db, normalized_test_id)
+        db.commit()
+        row = db.get(TestRecord, normalized_test_id)
+        return {
+            "name": row.name if row else None,
+            "note": row.note if row else None,
+        }
+
+
+def update_test_settings(test_id: str, name: Optional[str], note: Optional[str]) -> Dict[str, Optional[str]]:
+    normalized_test_id = str(test_id or "TEST").strip() or "TEST"
+    normalized_name = str(name).strip() if name is not None else None
+    normalized_note = str(note) if note is not None else None
+
+    with SessionLocal() as db:
+        _ensure_test(db, normalized_test_id)
+        row = db.get(TestRecord, normalized_test_id)
+        if row:
+            row.name = normalized_name if normalized_name else None
+            row.note = normalized_note
+        db.commit()
+        return {
+            "name": row.name if row else None,
+            "note": row.note if row else None,
+        }
+
+
+def delete_test(test_id: str) -> bool:
+    normalized_test_id = str(test_id or "TEST").strip() or "TEST"
+    with SessionLocal() as db:
+        row = db.get(TestRecord, normalized_test_id)
+        if not row:
+            return False
+        db.delete(row)
+        db.commit()
+        return True
+
+
+def update_group_settings(group_id: str, name: Optional[str], note: Optional[str]) -> Dict[str, Any]:
+    normalized_group_id = str(group_id or "").strip()
+    if not normalized_group_id:
+        raise ValueError("group_id is required")
+
+    with SessionLocal() as db:
+        group = db.get(GroupRecord, normalized_group_id)
+        if not group:
+            raise ValueError("Skupina nenalezena.")
+
+        if name is not None:
+            normalized_name = str(name).strip()
+            if not normalized_name:
+                raise ValueError("name is required")
+            group.name = normalized_name
+
+        if note is not None:
+            group.note = str(note)
+
+        db.commit()
+
+        return {
+            "id": group.id,
+            "test_id": group.test_id,
+            "name": group.name,
+            "note": group.note,
+            "session_ids": [link.session_id for link in group.session_links],
+        }
+
+
+def delete_group(group_id: str) -> bool:
+    normalized_group_id = str(group_id or "").strip()
+    if not normalized_group_id:
+        return False
+    with SessionLocal() as db:
+        group = db.get(GroupRecord, normalized_group_id)
+        if not group:
+            return False
+        db.delete(group)
+        db.commit()
+        return True
