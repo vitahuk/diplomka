@@ -36,7 +36,7 @@ from app.analysis.metrics import (
     compute_all_task_metrics,
     SOC_DEMO_KEYS,
 )
-
+from app.normalization.nationality import normalize_nationality
 
 app = FastAPI(title="MapTrack Analytics (MVP)")
 
@@ -416,6 +416,65 @@ def _ensure_session_answers_eval(session_data: SessionData) -> Dict[str, Any]:
     session_data.stats = stats
     return eval_payload
 
+def _refresh_session_answers_eval(session_data: SessionData, persist: bool = False) -> Dict[str, Any]:
+    prev_stats = session_data.stats if isinstance(session_data.stats, dict) else {}
+    prev_eval = prev_stats.get("answers_eval") if isinstance(prev_stats.get("answers_eval"), dict) else None
+    prev_answers = prev_stats.get("answers_by_task") if isinstance(prev_stats.get("answers_by_task"), dict) else {}
+
+    payload = _ensure_session_answers_eval(session_data)
+    new_stats = session_data.stats if isinstance(session_data.stats, dict) else {}
+    new_answers = new_stats.get("answers_by_task") if isinstance(new_stats.get("answers_by_task"), dict) else {}
+
+    nationality_changed = _normalize_session_nationality(session_data, persist=False)
+    changed = prev_eval != payload or prev_answers != new_answers or nationality_changed
+    if persist and changed:
+        STORE.upsert(session_data)
+
+    return payload
+
+def _normalize_session_nationality(session_data: SessionData, persist: bool = False) -> bool:
+    stats = session_data.stats if isinstance(session_data.stats, dict) else {}
+    session_stats = stats.get("session") if isinstance(stats.get("session"), dict) else {}
+    soc_demo = session_stats.get("soc_demo") if isinstance(session_stats.get("soc_demo"), dict) else {}
+
+    if not soc_demo:
+        return False
+
+    original = soc_demo.get("nationality")
+    normalized = normalize_nationality(original)
+    if normalized == original:
+        return False
+
+    updated_soc_demo = {**soc_demo, "nationality": normalized}
+    updated_session_stats = {**session_stats, "soc_demo": updated_soc_demo}
+    session_data.stats = {**stats, "session": updated_session_stats}
+
+    if persist:
+        STORE.upsert(session_data)
+
+    return True
+
+def _recompute_answers_eval_for_test(test_id: str) -> Dict[str, int]:
+    normalized_test_id = str(test_id or "TEST").strip() or "TEST"
+    sessions = STORE.list_sessions()
+    matched = 0
+    updated = 0
+
+    for session in sessions.values():
+        if (getattr(session, "test_id", "TEST") or "TEST") != normalized_test_id:
+            continue
+        matched += 1
+        prev_stats = session.stats if isinstance(session.stats, dict) else {}
+        prev_eval = prev_stats.get("answers_eval") if isinstance(prev_stats.get("answers_eval"), dict) else None
+        prev_answers = prev_stats.get("answers_by_task") if isinstance(prev_stats.get("answers_by_task"), dict) else {}
+
+        payload = _refresh_session_answers_eval(session, persist=True)
+        new_stats = session.stats if isinstance(session.stats, dict) else {}
+        new_answers = new_stats.get("answers_by_task") if isinstance(new_stats.get("answers_by_task"), dict) else {}
+        if prev_eval != payload or prev_answers != new_answers:
+            updated += 1
+
+    return {"matched": matched, "updated": updated}
 
 def _build_group_answers_payload(group: Dict[str, Any]) -> Dict[str, Any]:
     sessions = group.get("sessions", []) if isinstance(group.get("sessions"), list) else []
@@ -692,7 +751,7 @@ def list_sessions():
 
     out = []
     for s in sessions.values():
-        _ensure_session_answers_eval(s)
+        _refresh_session_answers_eval(s, persist=True)
         stats = s.stats if isinstance(s.stats, dict) else {}
         session_stats = stats.get("session", {}) if isinstance(stats.get("session"), dict) else {}
 
@@ -718,7 +777,7 @@ def get_session(session_id: str):
     if not s:
         raise HTTPException(status_code=404, detail="Session nenalezena.")
 
-    _ensure_session_answers_eval(s)
+    _refresh_session_answers_eval(s, persist=True)
     stats = s.stats if isinstance(s.stats, dict) else {}
     task_metrics = stats.get("tasks", {}) if isinstance(stats.get("tasks"), dict) else {}
     tasks = list(task_metrics.keys())
@@ -747,7 +806,7 @@ def get_task_metrics(session_id: str, task_id: str):
     if not isinstance(m, dict):
         raise HTTPException(status_code=404, detail="Task nenalezen v session.")
 
-    answers_eval = _ensure_session_answers_eval(s)
+    answers_eval = _refresh_session_answers_eval(s, persist=True)
     task_eval_map = answers_eval.get("by_task") if isinstance(answers_eval.get("by_task"), dict) else {}
     task_eval = task_eval_map.get(task_id) if isinstance(task_eval_map.get(task_id), dict) else {}
 
@@ -765,7 +824,7 @@ def get_session_answers_eval(session_id: str):
     if not s:
         raise HTTPException(status_code=404, detail="Session nenalezena.")
 
-    payload = _ensure_session_answers_eval(s)
+    payload = _refresh_session_answers_eval(s, persist=True)
     return {
         "session_id": s.session_id,
         "user_id": s.user_id,
@@ -951,13 +1010,13 @@ def api_put_test_answer(
             raise HTTPException(status_code=400, detail="'answer' must be a string or null.")
         updated = set_test_answer(test_id, task_id, answer)
 
-    # Refresh cached evaluation for all sessions in this test.
-    sessions = STORE.list_sessions()
-    for session in sessions.values():
-        if (getattr(session, "test_id", "TEST") or "TEST") == test_id:
-            _ensure_session_answers_eval(session)
+    recalc = _recompute_answers_eval_for_test(test_id)
 
-    return {"test_id": test_id, "answers": updated}
+    return {
+        "test_id": test_id,
+        "answers": updated,
+        "recalculation": recalc,
+    }
 
 
 @app.get("/api/tests/{test_id}/settings")
@@ -1007,13 +1066,15 @@ def api_list_groups(test_id: Optional[str] = None):
             session = STORE.get(sid)
             if not session:
                 continue
+            _refresh_session_answers_eval(session, persist=True)
+            stats = session.stats if isinstance(session.stats, dict) else {}
             sessions_out.append({
                 "session_id": session.session_id,
                 "user_id": session.user_id,
                 "test_id": getattr(session, "test_id", "TEST") or "TEST",
                 "task": session.task,
-                "tasks": list((session.stats or {}).get("tasks", {}).keys()),
-                "stats": session.stats if isinstance(session.stats, dict) else {},
+                "tasks": list((stats or {}).get("tasks", {}).keys()),
+                "stats": stats,
             })
 
         out.append({
@@ -1055,7 +1116,7 @@ def api_group_answers(group_id: str):
             stats = {**stats, "answers_by_task": answers_by_task}
             session.stats = stats
         
-        _ensure_session_answers_eval(session)
+        _refresh_session_answers_eval(session, persist=True)
         stats = session.stats if isinstance(session.stats, dict) else {}
 
 

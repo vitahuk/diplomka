@@ -83,10 +83,8 @@ const state = {
   groupCompareChartSortMode: "overall",
   groupCompareChartReferenceGroupId: null,
   groupCompareChartColors: {},
-  groupCompareSort: { key: "avgDurationMs", direction: "desc" },
   groupTaskSearchQuery: "",
   selectedGroupCompareTaskId: null,
-  groupTaskCompareSort: { key: "avgDurationMs", direction: "desc" },
   isGroupUsersExpanded: false,
   groupEditSessionIds: [],
   groupEditFlaggedSessionIds: [],
@@ -900,8 +898,19 @@ async function setCorrectAnswerPersisted(testId, taskId, answerTextOrNull) {
 
   try {
     renderSettingsStatus("Ukládám…");
-    await apiPutTestAnswer(testId, taskId, answerTextOrNull);
-    renderSettingsStatus("Uloženo.");
+    const result = await apiPutTestAnswer(testId, taskId, answerTextOrNull);
+    await refreshSessions();
+    await refreshGroups();
+    renderSettingsPage();
+    renderSessionsList();
+    renderTestAggMetrics();
+
+    const recalculation = result?.recalculation;
+    if (recalculation && Number.isFinite(Number(recalculation.matched))) {
+      renderSettingsStatus(`Uloženo. Přepočteno sessions: ${Number(recalculation.updated)}/${Number(recalculation.matched)}.`);
+    } else {
+      renderSettingsStatus("Uloženo.");
+    }
   } catch (e) {
     renderSettingsStatus(`Chyba uložení: ${e?.message ?? e}`);
   }
@@ -2806,14 +2815,25 @@ function buildGroupCompareRows(groups, taskId = null) {
       .map((s) => s?.stats?.session?.soc_demo?.age)
       .filter((v) => Number.isFinite(Number(v)))
       .map((v) => Number(v));
+    
+    const accuracies = sessions
+    .map((s) => {
+      if (taskId) {
+        const evalTask = s?.stats?.answers_eval?.by_task?.[taskId];
+        if (typeof evalTask?.is_correct === "boolean") {
+          return evalTask.is_correct ? 1 : 0;
+        }
+        const taskAccuracy = Number(s?.stats?.tasks?.[taskId]?.accuracy);
+        return Number.isFinite(taskAccuracy) ? taskAccuracy : null;
+      }
+      const sessionAccuracy = Number(s?.stats?.answers_eval?.summary?.accuracy);
+      return Number.isFinite(sessionAccuracy) ? sessionAccuracy : null;
+    })
+    .filter((v) => Number.isFinite(v));
 
     const avgDurationMs = durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : null;
     const medianDurationMs = medianFromNumbers(durations);
     const avgAge = ages.length ? ages.reduce((a, b) => a + b, 0) / ages.length : null;
-
-    const accuracies = sessions
-      .map((s) => Number(s?.stats?.answers_eval?.summary?.accuracy))
-      .filter((v) => Number.isFinite(v));
     const avgCorrectness = accuracies.length ? accuracies.reduce((a, b) => a + b, 0) / accuracies.length : null;
 
     return {
@@ -2828,53 +2848,29 @@ function buildGroupCompareRows(groups, taskId = null) {
   });
 }
 
-function compareValues(a, b, direction) {
-  const dir = direction === "asc" ? 1 : -1;
-  if (a === null || a === undefined) return 1;
-  if (b === null || b === undefined) return -1;
-  if (typeof a === "string" || typeof b === "string") {
-    return String(a).localeCompare(String(b)) * dir;
-  }
-  return (Number(a) - Number(b)) * dir;
-}
-
-function sortRows(rows, sort) {
-  const key = sort?.key ?? "avgDurationMs";
-  const direction = sort?.direction ?? "desc";
-  return [...rows].sort((r1, r2) => compareValues(r1[key], r2[key], direction));
-}
-
-function renderCompareTable({ rows, sort }) {
-  const headers = [
-    { key: "groupName", label: "Skupina" },
-    { key: "avgDurationMs", label: "Průměrný čas" },
-    { key: "medianDurationMs", label: "Medián času" },
-    { key: "avgCorrectness", label: "Průměrná správnost" },
-    { key: "avgAge", label: "Průměrný věk" },
+function renderCompareTable({ rows }) {
+  const sorted = [...rows].sort((a, b) => String(a.groupName).localeCompare(String(b.groupName), "cs"));
+  const metrics = [
+    { label: "Průměrný čas", render: (row) => fmtMs(row.avgDurationMs) },
+    { label: "Medián času", render: (row) => fmtMs(row.medianDurationMs) },
+    { label: "Průměrná správnost", render: (row) => fmtPercent(row.avgCorrectness) },
+    { label: "Průměrný věk", render: (row) => (row.avgAge === null ? "—" : row.avgAge.toFixed(1)) },
   ];
-
-  const sorted = sortRows(rows, sort);
-  const arrows = (key) => {
-    if (sort?.key !== key) return "↕";
-    return sort?.direction === "asc" ? "↑" : "↓";
-  };
 
   return `
     <div class="compare-table-wrap">
       <table class="compare-table">
         <thead>
           <tr>
-            ${headers.map((h) => `<th class="sortable-th" data-sort-key="${escapeHtml(h.key)}">${escapeHtml(h.label)} <span class="sort-indicator">${arrows(h.key)}</span></th>`).join("")}
+            <th>Metrika</th>
+            ${sorted.map((row) => `<th>${escapeHtml(row.groupName)}</th>`).join("")}
           </tr>
         </thead>
         <tbody>
-          ${sorted.map((row) => `
+          ${metrics.map((metric) => `
             <tr>
-              <td>${escapeHtml(row.groupName)}</td>
-              <td>${escapeHtml(fmtMs(row.avgDurationMs))}</td>
-              <td>${escapeHtml(fmtMs(row.medianDurationMs))}</td>
-              <td>${escapeHtml(fmtPercent(row.avgCorrectness))}</td>
-              <td>${escapeHtml(row.avgAge === null ? "—" : row.avgAge.toFixed(1))}</td>
+              <td><b>${escapeHtml(metric.label)}</b></td>
+              ${sorted.map((row) => `<td>${escapeHtml(metric.render(row))}</td>`).join("")}
             </tr>
           `).join("")}
         </tbody>
@@ -2883,11 +2879,14 @@ function renderCompareTable({ rows, sort }) {
   `;
 }
 
-function toggleSort(currentSort, key) {
-  if (currentSort?.key === key) {
-    return { key, direction: currentSort.direction === "asc" ? "desc" : "asc" };
+function renderGroupCompareBoxplotTab(groups) {
+  const wrap = $("#groupsCompareBoxplotWrap");
+  if (!wrap) return;
+  if (!groups.length) {
+    wrap.innerHTML = `<div class="empty"><div class="empty-title">Nejsou vybrané skupiny</div><div class="muted small">Na stránce Skupiny označ skupiny pro srovnání.</div></div>`;
+    return;
   }
-  return { key, direction: "desc" };
+  wrap.innerHTML = `<div class="muted small">Box plot bude doplněn v dalším kroku.</div>`;
 }
 
 const GROUP_COMPARE_DIMENSIONS = {
@@ -3991,14 +3990,7 @@ function renderGroupCompareSummaryTab(groups) {
   }
 
   const rows = buildGroupCompareRows(groups, null);
-  wrap.innerHTML = renderCompareTable({ rows, sort: state.groupCompareSort });
-  $$("#groupsCompareTableWrap .sortable-th[data-sort-key]").forEach((cell) => {
-    cell.addEventListener("click", () => {
-      const key = cell.dataset.sortKey;
-      state.groupCompareSort = toggleSort(state.groupCompareSort, key);
-      renderGroupCompareModal();
-    });
-  });
+  wrap.innerHTML = renderCompareTable({ rows });
 }
 
 function renderGroupCompareTaskTab(groups) {
@@ -4042,15 +4034,8 @@ function renderGroupCompareTaskTab(groups) {
   const rows = buildGroupCompareRows(groups, state.selectedGroupCompareTaskId);
   tableWrap.innerHTML = `
     <div class="muted small" style="margin-bottom:8px;">Úloha: <b>${escapeHtml(state.selectedGroupCompareTaskId)}</b></div>
-    ${renderCompareTable({ rows, sort: state.groupTaskCompareSort })}
+    ${renderCompareTable({ rows })}
   `;
-  $$("#groupTaskCompareTableWrap .sortable-th[data-sort-key]").forEach((cell) => {
-    cell.addEventListener("click", () => {
-      const key = cell.dataset.sortKey;
-      state.groupTaskCompareSort = toggleSort(state.groupTaskCompareSort, key);
-      renderGroupCompareModal();
-    });
-  });
 }
 
 function renderGroupCompareModal() {
@@ -4071,6 +4056,7 @@ function renderGroupCompareModal() {
 
   renderGroupCompareSummaryTab(groups);
   renderGroupCompareChartTab(groups);
+  renderGroupCompareBoxplotTab(groups);
   renderGroupCompareTaskTab(groups);
   renderGroupCompareAnswersTab(groups);
 }

@@ -829,7 +829,8 @@
       <div class="modal-body">
         <div class="tab-row" id="groupsCompareTabs" role="tablist" aria-label="Srovnání skupin">
           <button class="tab-btn is-active" type="button" role="tab" data-tab="summary">Tabulka</button>
-          <button class="tab-btn" type="button" role="tab" data-tab="chart">Grafické srovnání</button>
+          <button class="tab-btn" type="button" role="tab" data-tab="chart">Správnost odpovědí</button>
+          <button class="tab-btn" type="button" role="tab" data-tab="boxplot">Box plot</button>
           <button class="tab-btn" type="button" role="tab" data-tab="task">Srovnání na úrovni úloh</button>
           <button class="tab-btn" type="button" role="tab" data-tab="answers">Odpovědi</button>
         </div>
@@ -840,6 +841,10 @@
 
         <section class="tab-panel hidden" data-panel="chart">
           <div id="groupsCompareChartWrap"></div>
+        </section>
+
+        <section class="tab-panel hidden" data-panel="boxplot">
+          <div id="groupsCompareBoxplotWrap"></div>
         </section>
 
         <section class="tab-panel hidden" data-panel="task">
@@ -868,7 +873,7 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="/static/app.js?v=33"></script>
+  <script src="/static/app.js?v=35"></script>
 </body>
 
 </html>
