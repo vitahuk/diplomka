@@ -479,6 +479,14 @@
                     <input id="taskMapShowEndpoints" type="checkbox" checked />
                     <span>Začátek / konec</span>
                   </label>
+                  <label class="map-option-row" for="taskMapShowViewportRects">
+                    <input id="taskMapShowViewportRects" type="checkbox" />
+                    <span>Zobrazovat viewport obdélníky</span>
+                  </label>
+                  <label class="map-option-row" for="taskMapShowAllViewportRects">
+                    <input id="taskMapShowAllViewportRects" type="checkbox" />
+                    <span>Zobrazit všechny viewport obdélníky</span>
+                  </label>
                 </div>
 
                 <div class="map-panel-title" style="margin-top:10px;">Barvy</div>
@@ -506,6 +514,10 @@
                   <div class="map-legend-row">
                     <span class="map-legend-swatch map-legend-swatch-endpoint" id="taskMapLegendEndpointSwatch"></span>
                     <span>Začátek / konec</span>
+                  </div>
+                  <div class="map-legend-row">
+                    <span class="map-legend-swatch" id="taskMapLegendViewportSwatch" style="background:#ff7800;"></span>
+                    <span>Viewport obdélníky</span>
                   </div>
                 </div>
 
@@ -617,6 +629,14 @@
                 <input id="mapShowEndpoints" type="checkbox" checked />
                 <span>Začátek a konec pohybu</span>
               </label>
+              <label class="map-option-row" for="mapShowViewportRects">
+                <input id="mapShowViewportRects" type="checkbox" />
+                <span>Zobrazovat viewport obdélníky</span>
+              </label>
+              <label class="map-option-row" for="mapShowAllViewportRects">
+                <input id="mapShowAllViewportRects" type="checkbox" />
+                <span>Zobrazit všechny viewport obdélníky</span>
+              </label>
             </div>
 
             <div class="map-option-grid">
@@ -643,6 +663,10 @@
               <div class="map-legend-row">
                 <span class="map-legend-swatch map-legend-swatch-endpoint" id="mapLegendEndpointSwatch"></span>
                 <span>Začátek a konec pohybu</span>
+              </div>
+              <div class="map-legend-row">
+                <span class="map-legend-swatch" id="mapLegendViewportSwatch" style="background:#ff7800;"></span>
+                <span>Viewport obdélníky</span>
               </div>
             </div>
 
@@ -822,7 +846,7 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="/static/app.js?v=23"></script>
+  <script src="/static/app.js?v=25"></script>
 </body>
 
 </html>

@@ -676,7 +676,17 @@ def get_session_spatial_trace(session_id: str, task_id: Optional[str] = None):
     if not csv_path.exists():
         raise HTTPException(status_code=404, detail="CSV soubor pro session nenalezen.")
 
-    usecols = ["timestamp", "event_name", "event_detail", "task", "userId", "userid", "user_id"]
+    usecols = [
+        "timestamp",
+        "event_name",
+        "event_detail",
+        "task",
+        "userId",
+        "userid",
+        "user_id",
+        "viewportSize",
+        "orientation",
+    ]
     try:
         df = pd.read_csv(csv_path, usecols=lambda c: c in usecols)
     except Exception as e:

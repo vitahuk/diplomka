@@ -33,6 +33,8 @@ konzultace v Olomouci:
 - prohodit osy v tabulkách ve srovnání skupin
 - zobrazení všech uživatelů skupiny včetně jejich základních statistik a možnost si je označit nějakým vykřičníkem. pak filtr na vykřičník a možnost všechny ze skupiny vymazat
 - exporty všeho
+- zobrazení poměru typu pohybu u uživatelů, ale pak i srovnání na úrovni skupiny
+- v mapách zobrazit velikost okna, jak to uživatel zrovna viděl
 
 
 uživatelský test kvalitativní:

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
 import re
+import math
 
 import pandas as pd
 
@@ -108,6 +109,102 @@ def _parse_viewport_size(v: Any) -> Viewport:
     except Exception:
         return Viewport()
 
+MERCATOR_MAX_LAT = 85.05112878
+
+def _normalize_orientation(v: Any) -> Optional[str]:
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return None
+    s = str(v).strip().lower()
+    if not s:
+        return None
+    if s.startswith("landscape"):
+        return "landscape-primary"
+    if s.startswith("portrait"):
+        return "portrait-primary"
+    return s
+
+
+def _resolve_viewport_with_orientation(
+    viewport_raw: Any,
+    orientation_raw: Any,
+) -> Viewport:
+    viewport = _parse_viewport_size(viewport_raw)
+    if not viewport.width or not viewport.height:
+        return Viewport()
+
+    width = int(viewport.width)
+    height = int(viewport.height)
+    orientation = _normalize_orientation(orientation_raw)
+
+    if orientation == "portrait-primary" and width > height:
+        width, height = height, width
+    elif orientation == "landscape-primary" and width < height:
+        width, height = height, width
+
+    return Viewport(width=width, height=height)
+
+
+def _compute_viewport_bounds(
+    lat: float,
+    lon: float,
+    zoom: float,
+    viewport_width: int,
+    viewport_height: int,
+) -> Optional[List[List[float]]]:
+    """
+    Compute geographic rectangle [[south, west], [north, east]] for slippy map viewport.
+    """
+    if not (math.isfinite(lat) and math.isfinite(lon) and math.isfinite(zoom)):
+        return None
+    if viewport_width <= 0 or viewport_height <= 0:
+        return None
+
+    clamped_lat = max(min(lat, MERCATOR_MAX_LAT), -MERCATOR_MAX_LAT)
+    world_size = 256.0 * (2.0 ** float(zoom))
+    if not math.isfinite(world_size) or world_size <= 0:
+        return None
+
+    lat_rad = math.radians(clamped_lat)
+    cx = world_size * (lon + 180.0) / 360.0
+    cy = world_size * (1.0 - math.log(math.tan(lat_rad) + (1.0 / math.cos(lat_rad))) / math.pi) / 2.0
+
+    half_w = viewport_width / 2.0
+    half_h = viewport_height / 2.0
+
+    left = cx - half_w
+    right = cx + half_w
+    top = cy - half_h
+    bottom = cy + half_h
+
+    def unproject(px: float, py: float) -> Tuple[float, float]:
+        lon_out = (px / world_size) * 360.0 - 180.0
+        lat_out = math.degrees(math.atan(math.sinh(math.pi * (1.0 - (2.0 * py / world_size)))))
+        return lat_out, lon_out
+
+    north_lat, west_lon = unproject(left, top)
+    south_lat, _ = unproject(left, bottom)
+    _, east_lon = unproject(right, top)
+
+    lon_span = abs(east_lon - west_lon)
+    if lon_span >= 360.0:
+        west_lon = -180.0
+        east_lon = 180.0
+    else:
+        def normalize_lon(lon_value: float) -> float:
+            normalized = ((lon_value + 180.0) % 360.0) - 180.0
+            # preserve +180 instead of -180 for readability when edge-aligned
+            if normalized == -180.0 and lon_value > 0:
+                return 180.0
+            return normalized
+
+        west_lon = normalize_lon(west_lon)
+        east_lon = normalize_lon(east_lon)
+
+    north_lat = max(min(north_lat, MERCATOR_MAX_LAT), -MERCATOR_MAX_LAT)
+    south_lat = max(min(south_lat, MERCATOR_MAX_LAT), -MERCATOR_MAX_LAT)
+
+    return [[south_lat, west_lon], [north_lat, east_lon]]
+
 COORDINATE_EVENT_NAMES: set[str] = {"movestart", "moveend", "popupopen", "popupclose"}
 COORDINATE_PATTERN = re.compile(
     r"^\s*(?P<lat>-?\d+(?:\.\d+)?)\s*,\s*(?P<lon>-?\d+(?:\.\d+)?)\s*$"
@@ -189,7 +286,10 @@ def build_spatial_trace_for_user(
     Výstup:
     {
       userId: str,
-      track: { points: [[lat, lon], ...] },
+      track: {
+        points: [[lat, lon], ...],
+        samples: [{lat, lon, timestamp, zoom, viewportWidth, viewportHeight, orientation, viewportBounds}, ...]
+      },
       popups: [{lat, lon, name, timestamp}, ...],
       movementEndpoints: {start: {lat, lon, timestamp}|null, end: {lat, lon, timestamp}|null}
     }
@@ -233,7 +333,7 @@ def build_spatial_trace_for_user(
         return {
             "userId": normalized_user or "",
             "taskId": normalized_task or "",
-            "track": {"points": []},
+            "track": {"points": [], "samples": []},
             "popups": [],
             "movementEndpoints": {"start": None, "end": None},
         }
@@ -246,9 +346,12 @@ def build_spatial_trace_for_user(
         resolved_user_id = str(data.iloc[0][uid_col]).strip()
 
     track_points: List[List[float]] = []
+    track_samples: List[Dict[str, Any]] = []
     popups: List[Dict[str, Any]] = []
     all_coordinate_points: List[Dict[str, Any]] = []
     last_popup_name: Optional[str] = None
+    first_movestart_point: Optional[Dict[str, Any]] = None
+    last_zoom: Optional[float] = None
 
     for _, row in data.iterrows():
         event_name = str(row.get("event_name", "")).strip()
@@ -263,13 +366,53 @@ def build_spatial_trace_for_user(
                 last_popup_name = text if text else None
             continue
 
+        parsed = parse_event_detail(event_name, event_detail)
+        if event_name in {"zoom in", "zoom out"}:
+            zoom_value = parsed.get("zoom")
+            if isinstance(zoom_value, (int, float)) and math.isfinite(float(zoom_value)):
+                last_zoom = float(zoom_value)
+            continue
+
         coord = parse_coordinate_detail_if_allowed(event_name, event_detail)
         if coord is not None:
             lat, lon = coord
             all_coordinate_points.append({"lat": lat, "lon": lon, "timestamp": timestamp})
 
+        if event_name == "movestart" and coord is not None and first_movestart_point is None:
+            lat, lon = coord
+            first_movestart_point = {"lat": lat, "lon": lon, "timestamp": timestamp}
+            continue
+
         if event_name == "moveend" and coord is not None:
             lat, lon = coord
+
+            viewport = _resolve_viewport_with_orientation(
+                row.get("viewportSize"),
+                row.get("orientation"),
+            )
+            orientation = _normalize_orientation(row.get("orientation"))
+
+            viewport_bounds = None
+            if viewport.width and viewport.height and last_zoom is not None:
+                viewport_bounds = _compute_viewport_bounds(
+                    lat=lat,
+                    lon=lon,
+                    zoom=last_zoom,
+                    viewport_width=int(viewport.width),
+                    viewport_height=int(viewport.height),
+                )
+
+            track_samples.append({
+                "lat": lat,
+                "lon": lon,
+                "timestamp": timestamp,
+                "zoom": last_zoom,
+                "viewportWidth": viewport.width,
+                "viewportHeight": viewport.height,
+                "orientation": orientation,
+                "viewportBounds": viewport_bounds,
+            })
+
             if track_points:
                 prev_lat, prev_lon = track_points[-1]
                 if abs(lat - prev_lat) < 1e-6 and abs(lon - prev_lon) < 1e-6:
@@ -287,8 +430,38 @@ def build_spatial_trace_for_user(
             })
             last_popup_name = None
 
+    if first_movestart_point and track_points:
+        fs_lat = float(first_movestart_point["lat"])
+        fs_lon = float(first_movestart_point["lon"])
+        first_lat, first_lon = track_points[0]
+        if abs(fs_lat - first_lat) >= 1e-6 or abs(fs_lon - first_lon) >= 1e-6:
+            track_points.insert(0, [fs_lat, fs_lon])
+            seed_sample = {
+                "lat": fs_lat,
+                "lon": fs_lon,
+                "timestamp": int(first_movestart_point["timestamp"]),
+                "zoom": track_samples[0].get("zoom") if track_samples else last_zoom,
+                "viewportWidth": track_samples[0].get("viewportWidth") if track_samples else None,
+                "viewportHeight": track_samples[0].get("viewportHeight") if track_samples else None,
+                "orientation": track_samples[0].get("orientation") if track_samples else None,
+                "viewportBounds": None,
+            }
+            vw = seed_sample.get("viewportWidth")
+            vh = seed_sample.get("viewportHeight")
+            z = seed_sample.get("zoom")
+            if isinstance(vw, int) and isinstance(vh, int) and isinstance(z, (int, float)) and math.isfinite(float(z)):
+                seed_sample["viewportBounds"] = _compute_viewport_bounds(
+                    lat=fs_lat,
+                    lon=fs_lon,
+                    zoom=float(z),
+                    viewport_width=vw,
+                    viewport_height=vh,
+                )
+            track_samples.insert(0, seed_sample)
+
     if len(track_points) < 2:
         track_points = []
+        track_samples = []
     
     start_point = all_coordinate_points[0] if all_coordinate_points else None
     end_point = all_coordinate_points[-1] if all_coordinate_points else None
@@ -297,7 +470,7 @@ def build_spatial_trace_for_user(
     return {
         "userId": resolved_user_id or "",
         "taskId": normalized_task or "",
-        "track": {"points": track_points},
+        "track": {"points": track_points, "samples": track_samples},
         "popups": popups,
         "movementEndpoints": {
             "start": start_point,
