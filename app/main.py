@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi import Body
 
@@ -112,6 +112,161 @@ def _read_soc_demo_rows_by_user(df: pd.DataFrame, user_col: str) -> Dict[str, Di
 def _sanitize_filename_component(value: str) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9_-]+", "_", value).strip("_")
     return cleaned or "user"
+
+def _read_session_events_df(csv_path: Path) -> pd.DataFrame:
+    usecols = ["timestamp", "event_name", "event_detail", "task"]
+    try:
+        df = pd.read_csv(csv_path, usecols=lambda c: c in usecols)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Nelze načíst eventy z CSV: {e}")
+
+    if "timestamp" not in df.columns or "event_name" not in df.columns:
+        raise HTTPException(status_code=400, detail="CSV neobsahuje required sloupce (timestamp, event_name).")
+
+    df = df[df["timestamp"].notna() & df["event_name"].notna()].copy()
+    if df.empty:
+        return df
+
+    df["timestamp"] = pd.to_numeric(df["timestamp"], errors="coerce")
+    df = df[df["timestamp"].notna()].copy()
+    if df.empty:
+        return df
+
+    df["timestamp"] = df["timestamp"].astype(int)
+    return df.sort_values(by=["timestamp"], kind="stable")
+
+def _to_text_detail(value: Any) -> Optional[str]:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if re.match(r"^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$", text):
+        return None
+    return text
+
+
+def _build_timeline_items_from_events_df(df: pd.DataFrame) -> List[Dict[str, Any]]:
+    events = []
+    for _, row in df.iterrows():
+        task = row.get("task") if "task" in df.columns else None
+        events.append({
+            "timestamp": int(row["timestamp"]),
+            "event_name": str(row["event_name"]),
+            "event_detail": row.get("event_detail") if "event_detail" in df.columns else None,
+            "task": None if pd.isna(task) else str(task),
+        })
+
+    items: List[Dict[str, Any]] = []
+    open_move: Optional[Dict[str, Any]] = None
+    open_popup: Optional[Dict[str, Any]] = None
+
+    for event in events:
+        ts = int(event["timestamp"])
+        name = str(event["event_name"])
+        detail = _to_text_detail(event.get("event_detail"))
+        task = event.get("task")
+
+        if name == "movestart":
+            if open_move:
+                items.append({
+                    "type": "interval",
+                    "name": "ZOOM" if open_move.get("hadZoom") else "MOVE",
+                    "startTs": int(open_move["startTs"]),
+                    "endTs": ts,
+                    "task": open_move.get("task") or task,
+                })
+            open_move = {"startTs": ts, "hadZoom": False, "task": task, "details": []}
+            continue
+
+        if name in {"zoom in", "zoom out"}:
+            if open_move:
+                open_move["hadZoom"] = True
+                if not open_move.get("task") and task:
+                    open_move["task"] = task
+                if detail:
+                    open_move["details"].append(f"{name}: {detail}")
+            else:
+                items.append({"type": "instant", "name": name, "ts": ts, "task": task})
+            continue
+
+        if name == "moveend":
+            if open_move:
+                items.append({
+                    "type": "interval",
+                    "name": "ZOOM" if open_move.get("hadZoom") else "MOVE",
+                    "startTs": int(open_move["startTs"]),
+                    "endTs": ts,
+                    "task": open_move.get("task") or task,
+                })
+                open_move = None
+            else:
+                items.append({"type": "instant", "name": name, "ts": ts, "task": task})
+            continue
+
+        if name == "popupopen":
+            if open_popup:
+                items.append({
+                    "type": "interval",
+                    "name": "POPUP",
+                    "startTs": int(open_popup["startTs"]),
+                    "endTs": ts,
+                    "task": open_popup.get("task") or task,
+                })
+            open_popup = {"startTs": ts, "task": task, "details": []}
+            if detail:
+                open_popup["details"].append(f"popupopen: {detail}")
+            continue
+
+        if name == "popupclose":
+            if open_popup:
+                items.append({
+                    "type": "interval",
+                    "name": "POPUP",
+                    "startTs": int(open_popup["startTs"]),
+                    "endTs": ts,
+                    "task": open_popup.get("task") or task,
+                })
+                open_popup = None
+            else:
+                items.append({"type": "instant", "name": name, "ts": ts, "task": task})
+            continue
+
+        if open_popup and not open_popup.get("task") and task:
+            open_popup["task"] = task
+
+        items.append({"type": "instant", "name": name, "ts": ts, "task": task})
+
+    last_ts = int(events[-1]["timestamp"]) if events else 0
+
+    if open_move:
+        items.append({
+            "type": "interval",
+            "name": "ZOOM" if open_move.get("hadZoom") else "MOVE",
+            "startTs": int(open_move["startTs"]),
+            "endTs": last_ts,
+            "task": open_move.get("task"),
+        })
+
+    if open_popup:
+        items.append({
+            "type": "interval",
+            "name": "POPUP",
+            "startTs": int(open_popup["startTs"]),
+            "endTs": last_ts,
+            "task": open_popup.get("task"),
+        })
+
+    if events and int(events[0]["timestamp"]) > 0:
+        items.insert(0, {
+            "type": "interval",
+            "name": "INTRO",
+            "startTs": 0,
+            "endTs": int(events[0]["timestamp"]),
+            "task": events[0].get("task"),
+        })
+
+    return items
 
 def _read_csv_flexible(path: Path) -> pd.DataFrame:
     """
@@ -631,30 +786,16 @@ def get_session_events(session_id: str):
     if not csv_path.exists():
         raise HTTPException(status_code=404, detail="CSV soubor pro session nenalezen.")
 
-    # read only required columns
-    usecols = ["timestamp", "event_name", "event_detail", "task"]
-    try:
-        df = pd.read_csv(csv_path, usecols=lambda c: c in usecols)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Nelze načíst eventy z CSV: {e}")
+    df = _read_session_events_df(csv_path)
 
-    # normalize + drop rows without essentials
-    if "timestamp" not in df.columns or "event_name" not in df.columns:
-        raise HTTPException(status_code=400, detail="CSV neobsahuje required sloupce (timestamp, event_name).")
-
-    # keep order as in file
     out = []
     for _, row in df.iterrows():
-        ts = row.get("timestamp")
-        name = row.get("event_name")
-        if pd.isna(ts) or pd.isna(name):
-            continue
         detail = row.get("event_detail") if "event_detail" in df.columns else None
         task = row.get("task") if "task" in df.columns else None
 
         out.append({
-            "timestamp": int(ts),
-            "event_name": str(name),
+            "timestamp": int(row["timestamp"]),
+            "event_name": str(row["event_name"]),
             "event_detail": None if pd.isna(detail) else str(detail),
             "task": None if pd.isna(task) else str(task),
         })
@@ -664,6 +805,56 @@ def get_session_events(session_id: str):
         "user_id": s.user_id,
         "events": out,
     }
+
+
+@app.get("/api/sessions/{session_id}/events/export")
+def export_session_events_gazeplotter_csv(session_id: str):
+    s = STORE.get(session_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="Session nenalezena.")
+
+    csv_path = Path(s.file_path)
+    if not csv_path.exists():
+        raise HTTPException(status_code=404, detail="CSV soubor pro session nenalezen.")
+
+    df = _read_session_events_df(csv_path)
+
+    participant = str(s.user_id or "")
+    if not participant and not df.empty:
+        participant = "unknown"
+
+    timeline_items = _build_timeline_items_from_events_df(df)
+
+    segments: List[Dict[str, Any]] = []
+    for item in timeline_items:
+        if item.get("type") == "interval":
+            from_ts = int(item.get("startTs", 0))
+            to_ts = int(item.get("endTs", from_ts))
+        else:
+            point_ts = int(item.get("ts", 0))
+            from_ts = point_ts
+            to_ts = point_ts
+
+        if to_ts < from_ts:
+            continue
+
+        stimulus_raw = item.get("task")
+        stimulus = "" if stimulus_raw is None else str(stimulus_raw)
+
+        segments.append({
+             "From": from_ts,
+            "To": to_ts,
+            "Participant": participant,
+            "Stimulus": stimulus,
+            "AOI": str(item.get("name", "")),
+        })
+
+    export_df = pd.DataFrame(segments, columns=["From", "To", "Participant", "Stimulus", "AOI"])
+    csv_data = export_df.to_csv(index=False, sep=',')
+
+    filename = f"gazeplotter_segments_{_sanitize_filename_component(s.session_id)}.csv"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return Response(content=csv_data, media_type="text/csv; charset=utf-8", headers=headers)
 
 
 @app.get("/api/sessions/{session_id}/spatial-trace")

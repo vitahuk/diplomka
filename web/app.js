@@ -435,6 +435,10 @@ async function apiGetSessionEvents(sessionId) {
   return apiGet(`/api/sessions/${encodeURIComponent(sessionId)}/events`);
 }
 
+function apiGetSessionEventsExportUrl(sessionId) {
+  return `/api/sessions/${encodeURIComponent(sessionId)}/events/export`;
+}
+
 async function apiGetSessionSpatialTrace(sessionId, taskId = null) {
   const query = taskId ? `?task_id=${encodeURIComponent(taskId)}` : "";
   return apiGet(`/api/sessions/${encodeURIComponent(sessionId)}/spatial-trace${query}`);
@@ -2181,6 +2185,51 @@ function closeTimelineModal() {
   hide($("#timelineModal"));
 }
 
+async function exportTimelineCsvForSelectedSession() {
+  const s = state.selectedSession;
+  if (!s?.session_id) return;
+
+  const baseName = `gazeplotter_timeline_${s.session_id}`;
+  const suggested = `${baseName}.csv`;
+  const userInput = window.prompt("Název exportovaného souboru:", suggested);
+  if (userInput === null) return;
+
+  let fileName = String(userInput || "").trim() || suggested;
+  if (!fileName.toLowerCase().endsWith(".csv")) fileName += ".csv";
+
+  const btn = $("#exportTimelineCsvBtn");
+  const originalLabel = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Exportuji…";
+  }
+
+  try {
+    const res = await fetch(apiGetSessionEventsExportUrl(s.session_id));
+    if (!res.ok) {
+      let err = {};
+      try { err = await res.json(); } catch { }
+      throw new Error(err.detail ?? res.statusText);
+    }
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    window.alert(`Export selhal: ${e?.message ?? e}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalLabel || "Export CSV (GazePlotter)";
+    }
+  }
+}
 
 function getMapControlsState() {
   return {
@@ -3820,6 +3869,7 @@ function wireModal() {
 
   // NEW: timeline modal close wiring (only if modal exists in HTML)
   $("#closeTimelineBtn")?.addEventListener("click", closeTimelineModal);
+  $("#exportTimelineCsvBtn")?.addEventListener("click", exportTimelineCsvForSelectedSession);
 
   $("#closeGroupCreateBtn")?.addEventListener("click", closeCreateGroupModal);
   $("#cancelGroupCreateBtn")?.addEventListener("click", closeCreateGroupModal);
