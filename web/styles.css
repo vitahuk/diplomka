@@ -1099,3 +1099,35 @@ p {
   background: rgba(255, 107, 107, .36) !important;
   box-shadow: 0 0 0 3px rgba(255, 107, 107, .22) !important;
 }
+.app-footer {
+  margin-top: 10px;
+  padding: 30px 16px 30px;
+  border-top: 1px solid rgba(34, 48, 74, .6);
+  background: rgba(10, 14, 24, .86);
+}
+
+.app-footer-content {
+  max-width: 920px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  color: var(--muted);
+}
+
+.app-footer-content p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.app-footer-logo {
+  margin-top: 18px;
+  margin-bottom: 10px;
+  width: min(300px, 70vw);
+  height: auto;
+  display: block;
+  opacity: .95;
+}

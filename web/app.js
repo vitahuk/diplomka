@@ -796,13 +796,13 @@ function renderSessionsList() {
 
     return `
       <div class="list-item ${selected}" data-session="${escapeHtml(s.session_id)}" style="cursor:default;">
-        <label class="row" style="justify-content:flex-start; gap:10px; cursor:pointer;">
+        <div class="row" style="justify-content:flex-start; gap:10px; cursor:default;">
           <input type="checkbox" data-role="group-select" data-session="${escapeHtml(s.session_id)}" ${checked} />
           <div>
             <div class="title">${escapeHtml(s.user_id ?? "—")}</div>
             <div class="muted small">session: ${escapeHtml(s.session_id)}</div>
           </div>
-        </label>
+        </div>
       </div>
     `;
 
