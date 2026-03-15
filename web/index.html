@@ -138,8 +138,14 @@
 
             <div class="card-foot foot-split">
               <div class="muted small" id="settingsStatus">—</div>
-              <button class="btn btn-ghost" id="settingsReloadBtn" type="button">Obnovit</button>
+              <div class="row" style="gap:8px;">
+                <button class="btn btn-ghost" id="settingsDownloadAnswersCsvBtn" type="button">Stáhnout CSV</button>
+                <button class="btn btn-ghost" id="settingsUploadAnswersCsvBtn" type="button">Nahrát CSV</button>
+                <button class="btn btn-ghost" id="settingsDownloadTemplateCsvBtn" type="button">Stáhnout vzorové CSV</button>
+                <button class="btn btn-ghost" id="settingsReloadBtn" type="button">Obnovit</button>
+              </div>
             </div>
+            <input id="settingsAnswersCsvInput" type="file" accept=".csv" hidden />
           </section>
 
           <section class="tab-panel hidden" data-panel="sessions">
@@ -879,7 +885,7 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="/static/app.js?v=41"></script>
+  <script src="/static/app.js?v=45"></script>
 </body>
 
 </html>

@@ -316,6 +316,29 @@ async function apiPutTestAnswer(testId, taskName, answerOrNull) {
   return res.json();
 }
 
+function apiGetTestAnswersExportCsvUrl(testId) {
+  return `/api/tests/${encodeURIComponent(testId)}/answers/export-csv`;
+}
+
+function apiGetTestAnswersTemplateCsvUrl(testId) {
+  return `/api/tests/${encodeURIComponent(testId)}/answers/template-csv`;
+}
+
+async function apiUploadTestAnswersCsv(testId, file) {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch(`/api/tests/${encodeURIComponent(testId)}/answers/upload-csv`, {
+    method: "POST",
+    body: fd,
+  });
+  if (!res.ok) {
+    let err = {};
+    try { err = await res.json(); } catch { }
+    throw new Error(err.detail ?? res.statusText);
+  }
+  return res.json();
+}
+
 async function apiDeleteSessions(testId, sessionIds) {
   const res = await fetch(`/api/tests/${encodeURIComponent(testId)}/sessions`, {
     method: "DELETE",
@@ -921,6 +944,19 @@ async function loadAllTestSettings() {
   }));
 }
 
+async function loadTestSettingsForSelectedTest() {
+  const testId = state.selectedTestId ?? "TEST";
+  try {
+    const out = await apiGetTestSettings(testId);
+    state.testSettings[testId] = {
+      name: String(out?.name ?? "").trim(),
+      note: String(out?.note ?? ""),
+    };
+  } catch {
+    state.testSettings[testId] = state.testSettings[testId] ?? { name: "", note: "" };
+  }
+}
+
 async function loadTestsCatalogFromBackend() {
   try {
     const out = await apiListTests();
@@ -986,6 +1022,73 @@ async function setCorrectAnswerPersisted(testId, taskId, answerTextOrNull) {
     }
   } catch (e) {
     renderSettingsStatus(`Chyba uložení: ${e?.message ?? e}`);
+  }
+}
+
+async function downloadSettingsAnswersCsv(kind = "answers") {
+  const testId = state.selectedTestId ?? "TEST";
+  const isTemplate = kind === "template";
+  const btn = isTemplate ? $("#settingsDownloadTemplateCsvBtn") : $("#settingsDownloadAnswersCsvBtn");
+  const originalLabel = btn?.textContent;
+
+  try {
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Stahuji…";
+    }
+
+    const url = isTemplate
+      ? apiGetTestAnswersTemplateCsvUrl(testId)
+      : apiGetTestAnswersExportCsvUrl(testId);
+
+    const res = await fetch(url);
+    if (!res.ok) {
+      let err = {};
+      try { err = await res.json(); } catch { }
+      throw new Error(err.detail ?? res.statusText);
+    }
+
+    const blob = await res.blob();
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = isTemplate ? `test_${testId}_answers_template.csv` : `test_${testId}_answers.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(link.href);
+    renderSettingsStatus(isTemplate ? "Vzorové CSV staženo." : "CSV se správnými odpověďmi staženo.");
+  } catch (e) {
+    renderSettingsStatus(`Chyba při stahování CSV: ${e?.message ?? e}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalLabel || (isTemplate ? "Stáhnout vzorové CSV" : "Stáhnout CSV");
+    }
+  }
+}
+
+async function uploadSettingsAnswersCsv(file) {
+  if (!file) return;
+  const testId = state.selectedTestId ?? "TEST";
+  renderSettingsStatus("Nahrávám CSV se správnými odpověďmi…");
+
+  try {
+    const out = await apiUploadTestAnswersCsv(testId, file);
+    state.correctAnswers[testId] = out?.answers ?? {};
+    await refreshSessions();
+    await refreshGroups();
+    renderSettingsPage();
+    renderSessionsList();
+    renderTestAggMetrics();
+
+    const recalculation = out?.recalculation;
+    const recalcText = recalculation && Number.isFinite(Number(recalculation.matched))
+      ? ` Přepočteno sessions: ${Number(recalculation.updated)}/${Number(recalculation.matched)}.`
+      : "";
+
+    renderSettingsStatus(`CSV nahráno. Zpracováno řádků: ${Number(out?.rows_valid ?? 0)}.${recalcText}`);
+  } catch (e) {
+    renderSettingsStatus(`Chyba nahrání CSV: ${e?.message ?? e}`);
   }
 }
 
@@ -1222,19 +1325,25 @@ async function confirmDeleteSettingsSessions() {
       const deletingTestId = state.selectedTestId ?? "TEST";
       if (statusEl) statusEl.textContent = "Mazání uživatelského testu…";
       await apiDeleteTest(deletingTestId);
-      state.testSettings[deletingTestId] = { name: "", note: "" };
+      delete state.testSettings[deletingTestId];
+      delete state.correctAnswers[deletingTestId];
+      await loadTestsCatalogFromBackend();
       state.tests = (state.tests ?? []).filter((id) => id !== deletingTestId);
-      if (!state.tests.length) state.tests = ["TEST"];
       saveTestsToStorage(state.tests);
-      selectTest(state.tests[0]);
+      const nextTestId = state.tests[0] ?? null;
+      selectTest(nextTestId);
+      setPage("dashboard");
       await refreshSessions();
-      await refreshGroups();
-      renderTests();
+      if (state.selectedTestId) await refreshGroups();
+      else {
+        state.groups = [];
+        state.selectedGroupId = null;
+      }
+      renderTestsList();
       renderSettingsPage();
       renderSessionsList();
       renderTestAggMetrics();
       if (statusEl) statusEl.textContent = "Uživatelský test byl smazán.";
-      setPage("dashboard");
       return;
     }
 
@@ -4450,11 +4559,10 @@ async function deleteCurrentGroup() {
 
   try {
     if (statusEl) statusEl.textContent = "Mažu skupinu…";
+    closeGroupEditModal();
     await apiDeleteGroup(group.id);
     await refreshGroups();
-    state.selectedGroupId = null;
     renderGroupsPage();
-    closeGroupEditModal();
   } catch (e) {
     if (statusEl) statusEl.textContent = `Chyba: ${e?.message ?? e}`;
   }
@@ -4632,6 +4740,25 @@ function wireNavButtons() {
     await loadAnswersForSelectedTest();
     await loadTestSettingsForSelectedTest();
     renderSettingsPage();
+  });
+
+  $("#settingsDownloadAnswersCsvBtn")?.addEventListener("click", async () => {
+    await downloadSettingsAnswersCsv("answers");
+  });
+
+  $("#settingsDownloadTemplateCsvBtn")?.addEventListener("click", async () => {
+    await downloadSettingsAnswersCsv("template");
+  });
+
+  $("#settingsUploadAnswersCsvBtn")?.addEventListener("click", () => {
+    $("#settingsAnswersCsvInput")?.click();
+  });
+
+  $("#settingsAnswersCsvInput")?.addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await uploadSettingsAnswersCsv(file);
+    e.target.value = "";
   });
 
   $("#settingsTabs")?.addEventListener("click", (e) => {

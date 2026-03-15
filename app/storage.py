@@ -422,6 +422,45 @@ def get_test_answers(test_id: str) -> Dict[str, str]:
         ).scalars().all()
         return {row.task_id: row.answer for row in rows}
 
+def list_test_tasks(test_id: str) -> List[str]:
+    normalized_test_id = _normalize_test_id(test_id)
+    
+    with SessionLocal() as db:
+        task_rows = db.execute(
+            select(TaskRecord.id)
+            .where(TaskRecord.test_id == normalized_test_id)
+            .order_by(TaskRecord.id.asc())
+        ).all()
+
+        discovered_ids = {
+            str(row[0]).strip()
+            for row in task_rows
+            if row and row[0] is not None and str(row[0]).strip()
+        }
+
+        session_rows = db.execute(
+            select(SessionRecord.task, SessionRecord.stats)
+            .where(SessionRecord.test_id == normalized_test_id)
+        ).all()
+
+        for task_value, stats in session_rows:
+            task_text = str(task_value).strip() if task_value is not None else ""
+            if task_text:
+                discovered_ids.add(task_text)
+
+            stats_dict = stats if isinstance(stats, dict) else {}
+            tasks_payload = stats_dict.get("tasks") if isinstance(stats_dict, dict) else None
+            if isinstance(tasks_payload, dict):
+                for task_id in tasks_payload.keys():
+                    normalized_task = str(task_id).strip()
+                    if normalized_task:
+                        discovered_ids.add(normalized_task)
+
+        for task_id in discovered_ids:
+            _ensure_task(db, normalized_test_id, task_id)
+
+        db.commit()
+        return sorted(discovered_ids, key=lambda x: x.lower())
 
 def set_test_answer(test_id: str, task_id: str, answer: Optional[str]) -> Dict[str, str]:
     normalized_test_id = _normalize_test_id(test_id)
@@ -458,6 +497,48 @@ def set_test_answer(test_id: str, task_id: str, answer: Optional[str]) -> Dict[s
         ).scalars().all()
         return {item.task_id: item.answer for item in rows}
 
+def set_test_answers_bulk(test_id: str, answers_by_task: Dict[str, Optional[str]]) -> Dict[str, str]:
+    normalized_test_id = _normalize_test_id(test_id)
+    if not isinstance(answers_by_task, dict):
+        return get_test_answers(normalized_test_id)
+
+    valid_task_ids = set(list_test_tasks(normalized_test_id))
+
+    with SessionLocal() as db:
+        for task_id_raw, answer in answers_by_task.items():
+            normalized_task_id = str(task_id_raw or "").strip()
+            if not normalized_task_id or normalized_task_id not in valid_task_ids:
+                continue
+
+            _ensure_task(db, normalized_test_id, normalized_task_id)   
+
+            row = db.get(TestAnswerRecord, {"test_id": normalized_test_id, "task_id": normalized_task_id})
+
+            if answer is None:
+                if row:
+                    db.delete(row)
+                continue
+
+            normalized_answer = str(answer).strip()
+            if not normalized_answer:
+                if row:
+                    db.delete(row)
+                continue
+
+            if row:
+                row.answer = normalized_answer
+            else:
+                db.add(
+                    TestAnswerRecord(
+                        test_id=normalized_test_id,
+                        task_id=normalized_task_id,
+                        answer=normalized_answer,
+                    )
+                )
+
+        db.commit()
+
+    return get_test_answers(normalized_test_id)
 
 def list_groups(test_id: Optional[str] = None) -> List[Dict[str, Any]]:
     with SessionLocal() as db:

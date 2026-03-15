@@ -15,10 +15,11 @@ from typing import Any, Dict, Optional, List
 from uuid import uuid4
 from difflib import SequenceMatcher
 
+import csv
 import pandas as pd
 
 from app.storage import STORE, SessionData, ensure_upload_dir
-from app.storage import get_test_answers, set_test_answer
+from app.storage import get_test_answers, set_test_answer, list_test_tasks, set_test_answers_bulk
 from app.storage import list_groups, upsert_group, delete_sessions, delete_all_sessions_for_test
 from app.storage import get_test_settings, update_test_settings, delete_test, update_group_settings, delete_group
 from app.storage import list_tests, create_test
@@ -1017,6 +1018,94 @@ def api_put_test_answer(
     return {
         "test_id": test_id,
         "answers": updated,
+        "recalculation": recalc,
+    }
+
+
+@app.get("/api/tests/{test_id}/answers/export-csv")
+def api_export_test_answers_csv(test_id: str):
+    task_ids = list_test_tasks(test_id)
+    answers = get_test_answers(test_id)
+
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["task_id", "answer"])
+    for task_id in task_ids:
+        writer.writerow([task_id, answers.get(task_id, "")])
+
+    filename = f"test_{test_id}_answers.csv"
+    csv_payload = output.getvalue().encode("utf-8")
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Content-Type": "text/csv; charset=utf-8",
+    }
+    return Response(content=csv_payload, media_type="text/csv", headers=headers)
+
+
+@app.get("/api/tests/{test_id}/answers/template-csv")
+def api_export_test_answers_template_csv(test_id: str):
+    task_ids = list_test_tasks(test_id)
+
+    output = StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["task_id", "answer"])
+    for task_id in task_ids:
+        writer.writerow([task_id, ""])
+
+    filename = f"test_{test_id}_answers_template.csv"
+    csv_payload = output.getvalue().encode("utf-8")
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Content-Type": "text/csv; charset=utf-8",
+    }
+    return Response(content=csv_payload, media_type="text/csv", headers=headers)
+
+
+@app.post("/api/tests/{test_id}/answers/upload-csv")
+async def api_upload_test_answers_csv(test_id: str, file: UploadFile = File(...)):
+    filename = (file.filename or "").lower()
+    if filename and not filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Je povolen pouze CSV soubor.")
+
+    raw = await file.read()
+    try:
+        text = raw.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = raw.decode("cp1250")
+
+    try:
+        reader = csv.DictReader(StringIO(text))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"CSV nelze načíst: {e}")
+
+    if not reader.fieldnames:
+        raise HTTPException(status_code=400, detail="CSV je prázdné nebo bez hlavičky.")
+
+    normalized = {str(name).strip().lower(): name for name in reader.fieldnames if name is not None}
+    task_col = normalized.get("task_id")
+    answer_col = normalized.get("answer")
+    if not task_col or not answer_col:
+        raise HTTPException(status_code=400, detail="CSV musí obsahovat sloupce task_id a answer.")
+
+    updates = {}
+    total_rows = 0
+    for row in reader:
+        total_rows += 1
+        task_id = str(row.get(task_col, "") or "").strip()
+        if not task_id:
+            continue
+
+        answer_raw = row.get(answer_col)
+        answer_text = str(answer_raw).strip() if answer_raw is not None else ""
+        updates[task_id] = answer_text if answer_text else None
+
+    updated_answers = set_test_answers_bulk(test_id, updates)
+    recalc = _recompute_answers_eval_for_test(test_id)
+    return {
+        "test_id": test_id,
+        "rows_total": total_rows,
+        "rows_valid": len(updates),
+        "answers": updated_answers,
         "recalculation": recalc,
     }
 
