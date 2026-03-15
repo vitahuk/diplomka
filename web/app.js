@@ -92,6 +92,7 @@ const state = {
   groupEditTab: "sessions",
   groupEditShowOnlyFlagged: false,
   groupEditMetrics: ["tasks", "events", "duration", "accuracy", "age", "gender"],
+  sessionMetrics: ["tasks", "events", "duration", "accuracy", "age", "gender"],
   groupEditFilters: {
     gender: "",
     ageMin: "",
@@ -762,28 +763,19 @@ function renderSessionsList() {
     return;
   }
 
-  listEl.innerHTML = filteredSessions.map(s => {
+  listEl.innerHTML = filteredSessions.map((s) => {
     const selected = s.session_id === state.selectedSessionId ? "is-selected" : "";
-    const sessionStats = s.stats?.session ?? {};
-    const dur = fmtMs(sessionStats.duration_ms);
-    const events = sessionStats.events_total ?? "—";
-    const tasksCount = sessionStats.tasks_count ?? (Array.isArray(s.tasks) ? s.tasks.length : "—");
-    const user = s.user_id ?? "—";
-
     const checked = (state.selectedSessionIds ?? []).includes(s.session_id) ? "checked" : "";
 
     return `
-      <div class="list-item ${selected}" data-session="${escapeHtml(s.session_id)}">
-        <div class="row">
-          <div class="row" style="justify-content:flex-start; gap:8px;">
-            <input type="checkbox" data-role="group-select" data-session="${escapeHtml(s.session_id)}" ${checked} />
-            <div class="title">${escapeHtml(s.session_id)}</div>
+      <div class="list-item ${selected}" data-session="${escapeHtml(s.session_id)}" style="cursor:default;">
+        <label class="row" style="justify-content:flex-start; gap:10px; cursor:pointer;">
+          <input type="checkbox" data-role="group-select" data-session="${escapeHtml(s.session_id)}" ${checked} />
+          <div>
+            <div class="title">${escapeHtml(s.user_id ?? "—")}</div>
+            <div class="muted small">session: ${escapeHtml(s.session_id)}</div>
           </div>
-          <span class="pill">events: ${escapeHtml(events)}</span>
-        </div>
-        <div class="muted small">
-          user: ${escapeHtml(user)} · tasks: ${escapeHtml(tasksCount)} · délka: ${escapeHtml(dur)}
-        </div>
+        </label>
       </div>
     `;
 
@@ -813,9 +805,34 @@ function renderSessionsList() {
   });
 }
 
+function renderSessionMetricsPicker() {
+  const el = $("#sessionMetricsPicker");
+  if (!el) return;
+
+  const selected = new Set(state.sessionMetrics ?? []);
+  el.innerHTML = SESSION_METRIC_OPTIONS.map((m) => {
+    const isSelected = selected.has(m.key);
+    const active = isSelected ? "is-selected" : "is-unselected";
+    return `<button class="chip group-edit-metric-chip ${active}" type="button" aria-pressed="${isSelected ? "true" : "false"}" data-role="session-metric" data-key="${escapeHtml(m.key)}">${escapeHtml(m.label)}</button>`;
+  }).join("");
+
+  $$("#sessionMetricsPicker [data-role='session-metric']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const key = btn.dataset.key;
+      const set = new Set(state.sessionMetrics ?? []);
+      if (set.has(key)) set.delete(key);
+      else set.add(key);
+      state.sessionMetrics = SESSION_METRIC_OPTIONS.map((x) => x.key).filter((k) => set.has(k));
+      renderSessionMetricsPicker();
+      renderSessionMetrics();
+    });
+  });
+}
+
 function renderSessionMetrics() {
   const el = $("#sessionMetrics");
   const btn = $("#openSessionBtn");
+  renderSessionMetricsPicker();
   if (!el) return;
 
   if (!state.selectedSession) {
@@ -833,22 +850,25 @@ function renderSessionMetrics() {
   const sessionStats = s.stats?.session ?? {};
   const soc = sessionStats.soc_demo ?? {};
   const answersSummary = s.stats?.answers_eval?.summary ?? {};
+  const mapping = {
+    tasks: ["Počet tasků", sessionStats.tasks_count ?? (Array.isArray(s.tasks) ? s.tasks.length : "—")],
+    events: ["Počet eventů", sessionStats.events_total ?? "—"],
+    duration: ["Celkový čas řešení", fmtMs(sessionStats.duration_ms)],
+    accuracy: ["Průměrná správnost odpovědí", fmtPercent(answersSummary.accuracy)],
+    age: ["Věk", soc.age ?? "—"],
+    gender: ["Pohlaví", soc.gender ?? "—"],
+    occupation: ["Zaměstnání", soc.occupation ?? "—"],
+    nationality: ["Národnost", soc.nationality ?? "—"],
+    education: ["Vzdělání", soc.education ?? "—"],
+    device: ["Device", soc.device ?? "—"],
+  };
 
-  renderMetricGrid({
-    "Session ID": s.session_id,
-    "User": s.user_id ?? "—",
-    "Počet tasků": sessionStats.tasks_count ?? (Array.isArray(s.tasks) ? s.tasks.length : "—"),
-    "Počet eventů": sessionStats.events_total ?? "—",
-    "Celkový čas řešení": fmtMs(sessionStats.duration_ms),
-    "Průměrná správnost odpovědí": fmtPercent(answersSummary.accuracy),
-
-    "Age": soc.age ?? "—",
-    "Gender": soc.gender ?? "—",
-    "Occupation": soc.occupation ?? "—",
-    "Education": soc.education ?? "—",
-    "Nationality": soc.nationality ?? "—",
-    "Device": soc.device ?? "—",
-  }, el);
+  const rows = { UserID: s.user_id ?? "—" };
+  for (const key of (state.sessionMetrics ?? [])) {
+    const metric = mapping[key];
+    if (metric) rows[metric[0]] = metric[1];
+  }
+  renderMetricGrid(rows, el);
 
   if (btn) btn.disabled = false;
 }
@@ -3315,9 +3335,9 @@ function renderGroupCompareChartTab(groups) {
     </div>
   `;
 
-  const width = 820;
-  const height = 352;
-  const margin = { top: 30, right: 16, bottom: 76, left: 52 };
+  const width = 700;
+  const height = 300;
+  const margin = { top: 28, right: 14, bottom: 70, left: 50 };
   const innerW = width - margin.left - margin.right;
   const innerH = height - margin.top - margin.bottom;
   const xStep = chartData.categories.length > 1 ? innerW / (chartData.categories.length - 1) : 0;
@@ -3947,7 +3967,7 @@ function renderGroupEditFilterControls(sessions) {
   onlyFlaggedEl.checked = !!state.groupEditShowOnlyFlagged;
 }
 
-const GROUP_EDIT_METRIC_OPTIONS = [
+const SESSION_METRIC_OPTIONS = [
   { key: "tasks", label: "Počet tasků" },
   { key: "events", label: "Počet eventů" },
   { key: "duration", label: "Celkový čas řešení" },
@@ -3959,6 +3979,8 @@ const GROUP_EDIT_METRIC_OPTIONS = [
   { key: "education", label: "Vzdělání" },
   { key: "device", label: "Device" },
 ];
+
+const GROUP_EDIT_METRIC_OPTIONS = SESSION_METRIC_OPTIONS;
 
 function renderGroupEditMetricsPicker() {
   const el = $("#groupEditMetricsPicker");

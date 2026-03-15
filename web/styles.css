@@ -514,6 +514,7 @@ p {
   gap: 10px;
 }
 
+#sessionsList,
 #groupEditSessionsList {
   max-height: 55vh;
   overflow: auto;
@@ -680,6 +681,13 @@ p {
   border-radius: 999px;
 }
 
+#groupCompareBoxplotLegend .compare-chart-legend-item {
+  border-color: rgba(106, 166, 255, .45);
+  background: rgba(11, 20, 38, .72);
+  color: #f3f7ff;
+  font-weight: 700;
+}
+
 .compare-chart-canvas-wrap {
   position: relative;
   border: 1px solid rgba(203, 213, 225, .95);
@@ -790,8 +798,12 @@ p {
   flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 10px;
-  color: #1f2937;
+  color: #e6eeff;
   font-size: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(106, 166, 255, .42);
+  border-radius: 12px;
+  background: rgba(11, 20, 38, .6);
 }
 
 .boxplot-meaning-legend span {
@@ -1017,6 +1029,11 @@ p {
   content: "✓ ";
 }
 
+#groupEditMetricsField,
+#sessionMetricsField {
+  margin-bottom: 12px;
+}
+
 .group-edit-metric-chip.is-selected {
   border-color: rgba(98, 220, 145, .85);
   background: rgba(71, 189, 120, .3);
@@ -1053,18 +1070,21 @@ p {
   background: rgba(255, 107, 107, .34);
 }
 
-#groupEditMetricsPicker .group-edit-metric-chip {
+#groupEditMetricsPicker .group-edit-metric-chip,
+#sessionMetricsPicker .group-edit-metric-chip {
   appearance: none;
 }
 
-#groupEditMetricsPicker .group-edit-metric-chip.is-selected {
+#groupEditMetricsPicker .group-edit-metric-chip.is-selected,
+#sessionMetricsPicker .group-edit-metric-chip.is-selected {
   border-color: rgba(98, 220, 145, .9) !important;
   color: #eafff1 !important;
   background: rgba(71, 189, 120, .34) !important;
   box-shadow: 0 0 0 3px rgba(71, 189, 120, .2) !important;
 }
 
-#groupEditMetricsPicker .group-edit-metric-chip.is-unselected {
+#groupEditMetricsPicker .group-edit-metric-chip.is-unselected,
+#sessionMetricsPicker .group-edit-metric-chip.is-unselected {
   border-color: rgba(240, 98, 98, .82) !important;
   color: #ffdcdc !important;
   background: rgba(240, 98, 98, .22) !important;
