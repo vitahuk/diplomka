@@ -20,6 +20,7 @@ from app.storage import STORE, SessionData, ensure_upload_dir
 from app.storage import get_test_answers, set_test_answer
 from app.storage import list_groups, upsert_group, delete_sessions, delete_all_sessions_for_test
 from app.storage import get_test_settings, update_test_settings, delete_test, update_group_settings, delete_group
+from app.storage import list_tests, create_test
 from app.parsing.maptrack_csv import (
     parse_session,
     parse_session_df,
@@ -1027,6 +1028,29 @@ def api_get_test_settings(test_id: str):
         "name": settings.get("name"),
         "note": settings.get("note"),
     }
+
+
+@app.get("/api/tests")
+def api_list_tests():
+    return {"tests": list_tests()}
+
+
+@app.post("/api/tests")
+def api_create_test(payload: dict = Body(...)):
+    test_id = str(payload.get("test_id", "")).strip()
+    if not test_id:
+        raise HTTPException(status_code=400, detail="test_id is required")
+
+    name = payload.get("name")
+    note = payload.get("note")
+    try:
+        created = create_test(test_id=test_id, name=name, note=note)
+    except ValueError as e:
+        msg = str(e)
+        status = 409 if msg == "Test already exists" else 400
+        raise HTTPException(status_code=status, detail=msg)
+
+    return {"test": created}
 
 
 @app.put("/api/tests/{test_id}/settings")

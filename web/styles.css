@@ -766,6 +766,84 @@ p {
   }
 }
 
+.group-boxplot-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.group-boxplot-card {
+  border: 1px solid rgba(148, 163, 184, .45);
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 10px;
+}
+
+.group-boxplot-title {
+  font-weight: 800;
+  color: #0f172a;
+  margin-bottom: 8px;
+}
+
+.boxplot-meaning-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+  color: #1f2937;
+  font-size: 12px;
+}
+
+.boxplot-meaning-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.boxplot-legend-mark {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid #334155;
+  background: #e2e8f0;
+}
+
+.boxplot-legend-mark.median {
+  width: 14px;
+  height: 3px;
+  border-radius: 999px;
+  background: #334155;
+}
+
+.boxplot-legend-mark.whisker {
+  width: 3px;
+  height: 14px;
+  border-radius: 999px;
+  background: #334155;
+}
+
+.boxplot-legend-mark.average {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  background: linear-gradient(45deg, transparent 45%, #111827 45%, #111827 55%, transparent 55%),
+              linear-gradient(-45deg, transparent 45%, #111827 45%, #111827 55%, transparent 55%);
+}
+
+.boxplot-legend-mark.outlier {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #64748b;
+}
+
+@media (max-width: 980px) {
+  .group-boxplot-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .map-modal-card {
   width: min(1400px, 96vw);
   max-height: min(92vh, 980px);

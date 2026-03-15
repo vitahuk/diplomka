@@ -249,6 +249,24 @@ async function apiGet(path) {
   return res.json();
 }
 
+async function apiListTests() {
+  return apiGet("/api/tests");
+}
+
+async function apiCreateTest(payload) {
+  const res = await fetch("/api/tests", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    let err = {};
+    try { err = await res.json(); } catch { }
+    throw new Error(err.detail ?? res.statusText);
+  }
+  return res.json();
+}
+
 async function apiUpload(file, testId) {
   const fd = new FormData();
   fd.append("file", file);
@@ -864,16 +882,48 @@ async function loadAnswersForSelectedTest() {
   }
 }
 
-async function loadTestSettingsForSelectedTest() {
-  const testId = state.selectedTestId ?? "TEST";
+async function loadAllTestSettings() {
+  const testIds = Array.from(new Set(state.tests ?? []));
+  await Promise.all(testIds.map(async (testId) => {
+    try {
+      const out = await apiGetTestSettings(testId);
+      state.testSettings[testId] = {
+        name: String(out?.name ?? "").trim(),
+        note: String(out?.note ?? ""),
+      };
+    } catch {
+      state.testSettings[testId] = state.testSettings[testId] ?? { name: "", note: "" };
+    }
+  }));
+}
+
+async function loadTestsCatalogFromBackend() {
   try {
-    const out = await apiGetTestSettings(testId);
-    state.testSettings[testId] = {
-      name: String(out?.name ?? "").trim(),
-      note: String(out?.note ?? ""),
-    };
+    const out = await apiListTests();
+    const tests = Array.isArray(out?.tests) ? out.tests : [];
+    const ids = tests
+      .map((row) => normalizeTestId(row?.id))
+      .filter(Boolean);
+
+    if (ids.length) {
+      state.tests = Array.from(new Set(ids));
+      saveTestsToStorage(state.tests);
+      if (!state.tests.includes(state.selectedTestId)) {
+        state.selectedTestId = state.tests[0] ?? "TEST";
+        saveSelectedTestToStorage(state.selectedTestId);
+      }
+    }
+
+    tests.forEach((row) => {
+      const testId = normalizeTestId(row?.id);
+      if (!testId) return;
+      state.testSettings[testId] = {
+        name: String(row?.name ?? "").trim(),
+        note: String(row?.note ?? ""),
+      };
+    });
   } catch {
-    state.testSettings[testId] = state.testSettings[testId] ?? { name: "", note: "" };
+    // fallback to local storage + per-test loading
   }
 }
 
@@ -2793,6 +2843,53 @@ function medianFromNumbers(values) {
   return nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2;
 }
 
+function quantileFromSortedNumbers(sortedNums, q) {
+  if (!Array.isArray(sortedNums) || !sortedNums.length) return null;
+  if (!Number.isFinite(q)) return null;
+  if (sortedNums.length === 1) return sortedNums[0];
+
+  const pos = (sortedNums.length - 1) * Math.max(0, Math.min(1, q));
+  const base = Math.floor(pos);
+  const rest = pos - base;
+  const lower = sortedNums[base];
+  const upper = sortedNums[Math.min(base + 1, sortedNums.length - 1)];
+  return lower + rest * (upper - lower);
+}
+
+function buildBoxplotStats(values) {
+  const nums = values
+    .map((v) => Number(v))
+    .filter((v) => Number.isFinite(v))
+    .sort((a, b) => a - b);
+
+  if (!nums.length) return null;
+
+  const q1 = quantileFromSortedNumbers(nums, 0.25);
+  const median = quantileFromSortedNumbers(nums, 0.5);
+  const q3 = quantileFromSortedNumbers(nums, 0.75);
+  const iqr = q3 - q1;
+  const lowerFence = q1 - 1.5 * iqr;
+  const upperFence = q3 + 1.5 * iqr;
+  const inside = nums.filter((v) => v >= lowerFence && v <= upperFence);
+  const outliers = nums.filter((v) => v < lowerFence || v > upperFence);
+
+  return {
+    min: nums[0],
+    max: nums[nums.length - 1],
+    q1,
+    median,
+    q3,
+    iqr,
+    lowerFence,
+    upperFence,
+    whiskerLow: inside.length ? inside[0] : nums[0],
+    whiskerHigh: inside.length ? inside[inside.length - 1] : nums[nums.length - 1],
+    outliers,
+    average: nums.reduce((sum, val) => sum + val, 0) / nums.length,
+    count: nums.length,
+  };
+}
+
 function buildGroupCompareRows(groups, taskId = null) {
   return (groups ?? []).map((group) => {
     let sessions = Array.isArray(group?.sessions) ? group.sessions : [];
@@ -2886,7 +2983,165 @@ function renderGroupCompareBoxplotTab(groups) {
     wrap.innerHTML = `<div class="empty"><div class="empty-title">Nejsou vybrané skupiny</div><div class="muted small">Na stránce Skupiny označ skupiny pro srovnání.</div></div>`;
     return;
   }
-  wrap.innerHTML = `<div class="muted small">Box plot bude doplněn v dalším kroku.</div>`;
+  const statsByGroup = groups
+    .map((group, index) => {
+      const sessions = Array.isArray(group?.sessions) ? group.sessions : [];
+      const durations = sessions
+        .map((s) => Number(s?.stats?.session?.duration_ms))
+        .filter((v) => Number.isFinite(v));
+      const stats = buildBoxplotStats(durations);
+      if (!stats) return null;
+      return {
+        id: group.id,
+        name: group.name ?? group.id,
+        color: getGroupCompareColor(group.id, index),
+        stats,
+      };
+    })
+    .filter(Boolean);
+
+  if (!statsByGroup.length) {
+    wrap.innerHTML = `<div class="empty"><div class="empty-title">Nedostatek dat pro vykreslení</div><div class="muted small">Vybrané skupiny nemají dostupné časy řešení.</div></div>`;
+    return;
+  }
+
+  const allValues = statsByGroup.flatMap((item) => [
+    item.stats.min,
+    item.stats.max,
+    ...item.stats.outliers,
+  ]).filter((v) => Number.isFinite(v));
+
+  const valueMin = Math.min(...allValues);
+  const valueMax = Math.max(...allValues);
+  const padding = Math.max((valueMax - valueMin) * 0.08, 1000);
+  const domainMin = Math.max(0, valueMin - padding);
+  const domainMax = valueMax + padding;
+  const range = Math.max(1, domainMax - domainMin);
+
+  const width = 560;
+  const height = 330;
+  const margin = { top: 32, right: 20, bottom: 56, left: 72 };
+  const innerW = width - margin.left - margin.right;
+  const innerH = height - margin.top - margin.bottom;
+
+  const valueToY = (value) => {
+    const clamped = Math.max(domainMin, Math.min(domainMax, value));
+    return margin.top + ((domainMax - clamped) / range) * innerH;
+  };
+
+  const tickCount = 5;
+  const ticks = Array.from({ length: tickCount }, (_, i) => domainMin + ((domainMax - domainMin) * i) / (tickCount - 1));
+
+  wrap.innerHTML = `
+    <div class="compare-chart-legend" id="groupCompareBoxplotLegend">
+      ${statsByGroup.map((item) => `
+        <div class="compare-chart-legend-item">
+          <span class="compare-chart-legend-line" style="background:${escapeHtml(item.color)}"></span>
+          <span>${escapeHtml(item.name)}</span>
+        </div>
+      `).join("")}
+    </div>
+    <div class="boxplot-meaning-legend">
+      <span><span class="boxplot-legend-mark box"></span>Box (Q1–Q3)</span>
+      <span><span class="boxplot-legend-mark median"></span>Medián</span>
+      <span><span class="boxplot-legend-mark whisker"></span>Vousy (bez odlehlých hodnot)</span>
+      <span><span class="boxplot-legend-mark average"></span>Průměr</span>
+      <span><span class="boxplot-legend-mark outlier"></span>Odlehlé hodnoty</span>
+    </div>
+    <div class="group-boxplot-grid">
+      ${statsByGroup.map((item) => {
+        const cx = margin.left + innerW / 2;
+        const boxHalfWidth = Math.max(26, Math.min(64, innerW * 0.22));
+        const boxLeft = cx - boxHalfWidth;
+        const boxWidth = boxHalfWidth * 2;
+
+        const yQ1 = valueToY(item.stats.q1);
+        const yQ3 = valueToY(item.stats.q3);
+        const yMedian = valueToY(item.stats.median);
+        const yLow = valueToY(item.stats.whiskerLow);
+        const yHigh = valueToY(item.stats.whiskerHigh);
+        const yAverage = valueToY(item.stats.average);
+
+        return `
+          <article class="group-boxplot-card">
+            <div class="group-boxplot-title">${escapeHtml(item.name)}</div>
+            <div class="compare-chart-canvas-wrap boxplot-canvas-wrap">
+              <svg viewBox="0 0 ${width} ${height}" class="compare-chart-svg boxplot-svg" role="img" aria-label="Boxplot skupiny ${escapeHtml(item.name)}">
+                <text x="${width / 2}" y="20" class="compare-chart-title">Časy řešení</text>
+                ${ticks.map((tick) => {
+                  const y = valueToY(tick);
+                  return `
+                    <line x1="${margin.left}" y1="${y}" x2="${width - margin.right}" y2="${y}" class="compare-chart-grid" />
+                    <text x="${margin.left - 10}" y="${y + 4}" class="compare-chart-y-label">${escapeHtml(fmtMs(tick))}</text>
+                  `;
+                }).join("")}
+                <line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${height - margin.bottom}" class="compare-chart-axis" />
+                <line x1="${margin.left}" y1="${height - margin.bottom}" x2="${width - margin.right}" y2="${height - margin.bottom}" class="compare-chart-axis" />
+
+                <line x1="${cx}" y1="${yHigh}" x2="${cx}" y2="${yQ3}" stroke="${escapeHtml(item.color)}" stroke-width="2" />
+                <line x1="${cx}" y1="${yQ1}" x2="${cx}" y2="${yLow}" stroke="${escapeHtml(item.color)}" stroke-width="2" />
+                <line x1="${cx - boxHalfWidth * 0.55}" y1="${yHigh}" x2="${cx + boxHalfWidth * 0.55}" y2="${yHigh}" stroke="${escapeHtml(item.color)}" stroke-width="2.2" />
+                <line x1="${cx - boxHalfWidth * 0.55}" y1="${yLow}" x2="${cx + boxHalfWidth * 0.55}" y2="${yLow}" stroke="${escapeHtml(item.color)}" stroke-width="2.2" />
+
+                <rect x="${boxLeft}" y="${Math.min(yQ3, yQ1)}" width="${boxWidth}" height="${Math.max(2, Math.abs(yQ1 - yQ3))}" fill="${escapeHtml(item.color)}22" stroke="${escapeHtml(item.color)}" stroke-width="2.2" class="boxplot-hover-target" data-group="${escapeHtml(item.name)}" data-metric="IQR (Q1–Q3)" data-value="${escapeHtml(`${fmtMs(item.stats.q1)} až ${fmtMs(item.stats.q3)}`)}" data-extra="IQR: ${escapeHtml(fmtMs(item.stats.iqr))}" data-plot-x="${cx}" data-plot-y="${(yQ1 + yQ3) / 2}" />
+
+                <line x1="${boxLeft}" y1="${yMedian}" x2="${boxLeft + boxWidth}" y2="${yMedian}" stroke="${escapeHtml(item.color)}" stroke-width="3" class="boxplot-hover-target" data-group="${escapeHtml(item.name)}" data-metric="Medián" data-value="${escapeHtml(fmtMs(item.stats.median))}" data-plot-x="${cx}" data-plot-y="${yMedian}" />
+
+                <line x1="${cx}" y1="${yHigh}" x2="${cx}" y2="${yLow}" stroke="transparent" stroke-width="18" class="boxplot-hover-target" data-group="${escapeHtml(item.name)}" data-metric="Rozsah vousů" data-value="${escapeHtml(`${fmtMs(item.stats.whiskerLow)} až ${fmtMs(item.stats.whiskerHigh)}`)}" data-extra="Spodní vous: ${escapeHtml(fmtMs(item.stats.whiskerLow))}, horní vous: ${escapeHtml(fmtMs(item.stats.whiskerHigh))}" data-plot-x="${cx}" data-plot-y="${(yLow + yHigh) / 2}" />
+
+                <line x1="${cx - 8}" y1="${yAverage - 8}" x2="${cx + 8}" y2="${yAverage + 8}" stroke="#0f172a" stroke-width="2" class="boxplot-hover-target" data-group="${escapeHtml(item.name)}" data-metric="Průměr" data-value="${escapeHtml(fmtMs(item.stats.average))}" data-plot-x="${cx}" data-plot-y="${yAverage}" />
+                <line x1="${cx - 8}" y1="${yAverage + 8}" x2="${cx + 8}" y2="${yAverage - 8}" stroke="#0f172a" stroke-width="2" class="boxplot-hover-target" data-group="${escapeHtml(item.name)}" data-metric="Průměr" data-value="${escapeHtml(fmtMs(item.stats.average))}" data-plot-x="${cx}" data-plot-y="${yAverage}" />
+
+                ${item.stats.outliers.map((val, outIdx) => {
+                  const outX = cx + ((outIdx % 2 === 0 ? -1 : 1) * (10 + ((outIdx % 3) * 6)));
+                  const outY = valueToY(val);
+                  return `<circle cx="${outX}" cy="${outY}" r="4" fill="${escapeHtml(item.color)}" stroke="#111827" stroke-width="1" class="boxplot-hover-target" data-group="${escapeHtml(item.name)}" data-metric="Odlehlá hodnota" data-value="${escapeHtml(fmtMs(val))}" data-plot-x="${outX}" data-plot-y="${outY}" />`;
+                }).join("")}
+
+                <text x="${width / 2}" y="${height - 22}" class="compare-chart-x-label">n = ${item.stats.count}</text>
+              </svg>
+              <div class="compare-chart-tooltip hidden" data-role="boxplot-tooltip"></div>
+            </div>
+          </article>
+        `;
+      }).join("")}
+    </div>
+  `;
+
+  $$(".boxplot-canvas-wrap").forEach((canvasWrap) => {
+    const tooltip = canvasWrap.querySelector("[data-role='boxplot-tooltip']");
+    const svgEl = canvasWrap.querySelector(".boxplot-svg");
+    if (!tooltip || !svgEl) return;
+
+    const positionTooltip = (target) => {
+      const chartRect = canvasWrap.getBoundingClientRect();
+      const svgRect = svgEl.getBoundingClientRect();
+      const plotX = Number(target.dataset.plotX);
+      const plotY = Number(target.dataset.plotY);
+      if (!Number.isFinite(plotX) || !Number.isFinite(plotY)) return;
+
+      const scaleX = svgRect.width / width;
+      const scaleY = svgRect.height / height;
+      const left = (svgRect.left - chartRect.left) + (plotX * scaleX) + 10;
+      const top = (svgRect.top - chartRect.top) + (plotY * scaleY) - 16;
+      tooltip.style.left = `${left}px`;
+      tooltip.style.top = `${Math.max(8, top)}px`;
+    };
+
+    canvasWrap.querySelectorAll(".boxplot-hover-target").forEach((target) => {
+      target.addEventListener("mouseenter", () => {
+        tooltip.classList.remove("hidden");
+        tooltip.innerHTML = `
+          <div><strong>${escapeHtml(target.dataset.group ?? "")}</strong></div>
+          <div>${escapeHtml(target.dataset.metric ?? "")}: <strong>${escapeHtml(target.dataset.value ?? "")}</strong></div>
+          ${target.dataset.extra ? `<div class="muted small">${escapeHtml(target.dataset.extra)}</div>` : ""}
+        `;
+        positionTooltip(target);
+      });
+      target.addEventListener("mousemove", () => positionTooltip(target));
+      target.addEventListener("mouseleave", () => tooltip.classList.add("hidden"));
+    });
+  });
 }
 
 const GROUP_COMPARE_DIMENSIONS = {
@@ -4123,7 +4378,7 @@ function updateBreadcrumbs() {
   const testEl = $("#crumb-test");
   const sessionEl = $("#crumb-session");
 
-  if (testEl) testEl.textContent = state.selectedTestId ?? "—";
+  if (testEl) testEl.textContent = getCurrentTestDisplayName() || "—";
   if (sessionEl) sessionEl.textContent = state.selectedSessionId ?? "—";
 
   if (testEl) testEl.classList.toggle("muted", !state.selectedTestId);
@@ -4334,17 +4589,24 @@ function wireNavButtons() {
 }
 
 function wireTestControls() {
-  $("#addTestBtn")?.addEventListener("click", () => {
+  $("#addTestBtn")?.addEventListener("click", async () => {
     const raw = window.prompt("Zadej název nového testu:");
     const testId = normalizeTestId(raw);
     if (!testId) return;
 
-    if (!state.tests.includes(testId)) {
-      state.tests.push(testId);
-      state.tests = Array.from(new Set(state.tests));
-      saveTestsToStorage(state.tests);
-      renderTestsList();
+    try {
+      await apiCreateTest({ test_id: testId });
+    } catch (e) {
+      if (String(e?.message ?? "").toLowerCase().includes("already exists")) {
+        // test už existuje – pokračujeme výběrem
+      } else {
+        window.alert(`Nepodařilo se vytvořit test: ${e?.message ?? e}`);
+        return;
+      }
     }
+
+    await loadTestsCatalogFromBackend();
+    renderTestsList();
 
     selectTest(testId);
   });
@@ -4721,14 +4983,16 @@ async function init() {
 
   state.tests = loadTestsFromStorage();
   state.selectedTestId = loadSelectedTestFromStorage(state.tests);
-  renderTestsList();
 
   try {
     await refreshSessions();
+    await loadTestsCatalogFromBackend();
   } catch (e) {
     const statusEl = $("#uploadStatus");
     if (statusEl) statusEl.textContent = `Backend nedostupný: ${e?.message ?? e}`;
   }
+
+  renderTestsList();
 
   selectTest(state.selectedTestId ?? "TEST");
   setPage("dashboard");

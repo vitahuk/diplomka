@@ -503,6 +503,44 @@ def list_groups(test_id: Optional[str] = None) -> List[Dict[str, Any]]:
 
         return out
 
+def list_tests() -> List[Dict[str, Optional[str]]]:
+    with SessionLocal() as db:
+        rows = db.execute(select(TestRecord).order_by(TestRecord.id.asc())).scalars().all()
+        return [
+            {
+                "id": row.id,
+                "name": row.name,
+                "note": row.note,
+            }
+            for row in rows
+        ]
+
+def create_test(test_id: str, name: Optional[str] = None, note: Optional[str] = None) -> Dict[str, Optional[str]]:
+    normalized_test_id = str(test_id or "").strip()
+    if not normalized_test_id:
+        raise ValueError("test_id is required")
+
+    normalized_name = str(name).strip() if name is not None else None
+    normalized_note = str(note) if note is not None else None
+
+    with SessionLocal() as db:
+        row = db.get(TestRecord, normalized_test_id)
+        if row:
+            raise ValueError("Test already exists")
+
+        row = TestRecord(
+            id=normalized_test_id,
+            name=normalized_name if normalized_name else None,
+            note=normalized_note,
+        )
+        db.add(row)
+        db.commit()
+
+        return {
+            "id": row.id,
+            "name": row.name,
+            "note": row.note,
+        }
 
 def upsert_group(group_id: str, test_id: str, name: str, session_ids: List[str]) -> Dict[str, Any]:
     normalized_group_id = str(group_id or "").strip()
