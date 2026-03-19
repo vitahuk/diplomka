@@ -121,10 +121,10 @@ def _read_session_events_df(csv_path: Path) -> pd.DataFrame:
     try:
         df = pd.read_csv(csv_path, usecols=lambda c: c in usecols)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Nelze načíst eventy z CSV: {e}")
+        raise HTTPException(status_code=400, detail=f"Unable to load events from CSV: {e}")
 
     if "timestamp" not in df.columns or "event_name" not in df.columns:
-        raise HTTPException(status_code=400, detail="CSV neobsahuje required sloupce (timestamp, event_name).")
+        raise HTTPException(status_code=400, detail="CSV does not contain required columns.")
 
     df = df[df["timestamp"].notna() & df["event_name"].notna()].copy()
     if df.empty:
@@ -583,7 +583,7 @@ async def upload_csv(
     test_id: str = Form("TEST"),
 ):
     if not file.filename.lower().endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Nahraj prosím CSV soubor.")
+        raise HTTPException(status_code=400, detail="Please upload a CSV file.")
 
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     dst = UPLOAD_DIR / file.filename
@@ -593,7 +593,7 @@ async def upload_csv(
         with dst.open("wb") as f:
             shutil.copyfileobj(file.file, f)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Uložení souboru selhalo: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
 
     # parse + metrics
     try:
@@ -625,7 +625,7 @@ async def upload_csv(
         }
 
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Zpracování CSV selhalo: {e}")
+        raise HTTPException(status_code=400, detail=f"CSV processing failed: {e}")
 
     # store metadata (MVP: in-memory)
     session_meta = SessionData(
@@ -633,7 +633,7 @@ async def upload_csv(
         test_id=test_id or "TEST",
         file_path=str(dst),
         user_id=parsed_session.user_id,
-        task=primary_task,   # legacy (keep for now)
+        task=primary_task,
         stats=stats,
     )
     STORE.upsert(session_meta)
@@ -642,9 +642,9 @@ async def upload_csv(
         "session_id": parsed_session.session_id,
         "user_id": parsed_session.user_id,
         "test_id": test_id or "TEST",
-        "task": primary_task,  # legacy
-        "tasks": tasks,        # list of tasks for UI
-        "stats": stats,        # { session:..., tasks:{...} }
+        "task": primary_task,
+        "tasks": tasks,
+        "stats": stats,
     }
 
 @app.post("/api/upload/bulk")
@@ -653,7 +653,7 @@ async def upload_bulk_csv(
     test_id: str = Form("TEST"),
 ):
     if not file.filename.lower().endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Nahraj prosím CSV soubor.")
+        raise HTTPException(status_code=400, detail="Please upload a CSV file")
 
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     dst = UPLOAD_DIR / file.filename
@@ -662,7 +662,7 @@ async def upload_bulk_csv(
         with dst.open("wb") as f:
             shutil.copyfileobj(file.file, f)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Uložení souboru selhalo: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
 
     try:
         df = pd.read_csv(dst, low_memory=False)
@@ -671,16 +671,16 @@ async def upload_bulk_csv(
             df[age_col] = pd.to_numeric(df[age_col], errors="coerce")
         validate_maptrack_df(df)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Zpracování CSV selhalo: {e}")
+        raise HTTPException(status_code=400, detail=f"CSV processing failed: {e}")
 
     user_col = get_user_id_column(df)
     if not user_col:
-        raise HTTPException(status_code=400, detail="CSV neobsahuje povinný sloupec 'userid'.")
+        raise HTTPException(status_code=400, detail="CSV does not contain the required column 'userid'.")
 
     df["_user_id_norm"] = df[user_col].apply(_normalize_user_id)
     df = df[df["_user_id_norm"].notna()]
     if df.empty:
-        raise HTTPException(status_code=400, detail="CSV neobsahuje žádné platné hodnoty ve sloupci 'userid'.")
+        raise HTTPException(status_code=400, detail="CSV does not contain any valid values in the 'userid' column.")
 
     soc_rows = _read_soc_demo_rows_by_user(df, "_user_id_norm")
     base_session_id = infer_session_id_from_filename(file.filename)
@@ -740,7 +740,7 @@ async def upload_bulk_csv(
                 "stats": stats,
             })
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Zpracování hromadného CSV selhalo: {e}")
+        raise HTTPException(status_code=400, detail=f"Bulk CSV processing failed: {e}")
 
     return {
         "count": len(sessions_out),
@@ -778,7 +778,7 @@ def list_sessions():
 def get_session(session_id: str):
     s = STORE.get(session_id)
     if not s:
-        raise HTTPException(status_code=404, detail="Session nenalezena.")
+        raise HTTPException(status_code=404, detail="Session not found.")
 
     _refresh_session_answers_eval(s, persist=True)
     stats = s.stats if isinstance(s.stats, dict) else {}
@@ -800,14 +800,14 @@ def get_session(session_id: str):
 def get_task_metrics(session_id: str, task_id: str):
     s = STORE.get(session_id)
     if not s:
-        raise HTTPException(status_code=404, detail="Session nenalezena.")
+        raise HTTPException(status_code=404, detail="Session not found.")
 
     stats = s.stats if isinstance(s.stats, dict) else {}
     task_metrics = stats.get("tasks", {}) if isinstance(stats.get("tasks"), dict) else {}
 
     m = task_metrics.get(task_id)
     if not isinstance(m, dict):
-        raise HTTPException(status_code=404, detail="Task nenalezen v session.")
+        raise HTTPException(status_code=404, detail="Task not found in session.")
 
     answers_eval = _refresh_session_answers_eval(s, persist=True)
     task_eval_map = answers_eval.get("by_task") if isinstance(answers_eval.get("by_task"), dict) else {}
@@ -825,7 +825,7 @@ def get_task_metrics(session_id: str, task_id: str):
 def get_session_answers_eval(session_id: str):
     s = STORE.get(session_id)
     if not s:
-        raise HTTPException(status_code=404, detail="Session nenalezena.")
+        raise HTTPException(status_code=404, detail="Session not found.")
 
     payload = _refresh_session_answers_eval(s, persist=True)
     return {
@@ -842,11 +842,11 @@ def get_session_answers_eval(session_id: str):
 def get_session_events(session_id: str):
     s = STORE.get(session_id)
     if not s:
-        raise HTTPException(status_code=404, detail="Session nenalezena.")
+        raise HTTPException(status_code=404, detail="Session not found.")
 
     csv_path = Path(s.file_path)
     if not csv_path.exists():
-        raise HTTPException(status_code=404, detail="CSV soubor pro session nenalezen.")
+        raise HTTPException(status_code=404, detail="CSV file for session not found.")
 
     df = _read_session_events_df(csv_path)
 
@@ -873,11 +873,11 @@ def get_session_events(session_id: str):
 def export_session_events_gazeplotter_csv(session_id: str):
     s = STORE.get(session_id)
     if not s:
-        raise HTTPException(status_code=404, detail="Session nenalezena.")
+        raise HTTPException(status_code=404, detail="Session not found.")
 
     csv_path = Path(s.file_path)
     if not csv_path.exists():
-        raise HTTPException(status_code=404, detail="CSV soubor pro session nenalezen.")
+        raise HTTPException(status_code=404, detail="CSV file for session not found.")
 
     df = _read_session_events_df(csv_path)
 
@@ -904,7 +904,7 @@ def export_session_events_gazeplotter_csv(session_id: str):
         stimulus = "" if stimulus_raw is None else str(stimulus_raw)
 
         segments.append({
-             "From": from_ts,
+            "From": from_ts,
             "To": to_ts,
             "Participant": participant,
             "Stimulus": stimulus,
@@ -923,11 +923,11 @@ def export_session_events_gazeplotter_csv(session_id: str):
 def get_session_spatial_trace(session_id: str, task_id: Optional[str] = None):
     s = STORE.get(session_id)
     if not s:
-        raise HTTPException(status_code=404, detail="Session nenalezena.")
+        raise HTTPException(status_code=404, detail="Session not found.")
 
     csv_path = Path(s.file_path)
     if not csv_path.exists():
-        raise HTTPException(status_code=404, detail="CSV soubor pro session nenalezen.")
+        raise HTTPException(status_code=404, detail="CSV file for session not found.")
 
     usecols = [
         "timestamp",
@@ -943,7 +943,7 @@ def get_session_spatial_trace(session_id: str, task_id: Optional[str] = None):
     try:
         df = pd.read_csv(csv_path, usecols=lambda c: c in usecols)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Nelze načíst spatial data z CSV: {e}")
+        raise HTTPException(status_code=400, detail=f"Cannot load spatial data from CSV: {e}")
 
     user_id = s.user_id
     user_col = get_user_id_column(df)
@@ -1065,7 +1065,7 @@ def api_export_test_answers_template_csv(test_id: str):
 async def api_upload_test_answers_csv(test_id: str, file: UploadFile = File(...)):
     filename = (file.filename or "").lower()
     if filename and not filename.endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Je povolen pouze CSV soubor.")
+        raise HTTPException(status_code=400, detail="Only CSV files are allowed.")
 
     raw = await file.read()
     try:
@@ -1076,16 +1076,16 @@ async def api_upload_test_answers_csv(test_id: str, file: UploadFile = File(...)
     try:
         reader = csv.DictReader(StringIO(text))
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"CSV nelze načíst: {e}")
+        raise HTTPException(status_code=400, detail=f"Cannot load CSV: {e}")
 
     if not reader.fieldnames:
-        raise HTTPException(status_code=400, detail="CSV je prázdné nebo bez hlavičky.")
+        raise HTTPException(status_code=400, detail="CSV is empty or has no header.")
 
     normalized = {str(name).strip().lower(): name for name in reader.fieldnames if name is not None}
     task_col = normalized.get("task_id")
     answer_col = normalized.get("answer")
     if not task_col or not answer_col:
-        raise HTTPException(status_code=400, detail="CSV musí obsahovat sloupce task_id a answer.")
+        raise HTTPException(status_code=400, detail="CSV must contain columns 'task_id' and 'answer'.")
 
     updates = {}
     total_rows = 0
@@ -1166,7 +1166,7 @@ def api_update_test_settings(test_id: str, payload: dict = Body(...)):
 def api_delete_test(test_id: str):
     deleted = delete_test(test_id=test_id)
     if not deleted:
-        raise HTTPException(status_code=404, detail="Uživatelský test nenalezen.")
+        raise HTTPException(status_code=404, detail="User experiment not found.")
     return {
         "test_id": test_id,
         "deleted": True,
@@ -1213,11 +1213,11 @@ def api_list_groups(test_id: Optional[str] = None):
 def api_export_group_csv(group_id: str):
     group = next((g for g in list_groups() if g.get("id") == group_id), None)
     if not group:
-        raise HTTPException(status_code=404, detail="Skupina nenalezena.")
+        raise HTTPException(status_code=404, detail="Group not found.")
 
     session_ids = group.get("session_ids", []) if isinstance(group.get("session_ids"), list) else []
     if not session_ids:
-        raise HTTPException(status_code=400, detail="Skupina neobsahuje žádné sessions.")
+        raise HTTPException(status_code=400, detail="Group contains no sessions.")
 
     csv_frames: List[pd.DataFrame] = []
     user_id_values: List[str] = []
@@ -1235,7 +1235,7 @@ def api_export_group_csv(group_id: str):
         try:
             df = pd.read_csv(csv_path, dtype=str, keep_default_na=False)
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Nelze načíst CSV pro session '{sid}': {e}")
+            raise HTTPException(status_code=400, detail=f"Cannot load CSV for session '{sid}': {e}")
 
         if df.empty:
             continue
@@ -1263,7 +1263,7 @@ def api_export_group_csv(group_id: str):
                 all_columns.append(col)
 
     if not csv_frames:
-        raise HTTPException(status_code=404, detail="Pro tuto skupinu nebyla nalezena žádná CSV data.")
+        raise HTTPException(status_code=404, detail="No CSV data found for this group.")
 
     export_df = pd.concat(csv_frames, ignore_index=True, sort=False)
     if all_columns:
@@ -1282,7 +1282,7 @@ def api_export_group_csv(group_id: str):
 def api_group_answers(group_id: str):
     group = next((g for g in list_groups() if g.get("id") == group_id), None)
     if not group:
-        raise HTTPException(status_code=404, detail="Skupina nenalezena.")
+        raise HTTPException(status_code=404, detail="Group not found.")
 
     session_ids = group.get("session_ids", []) if isinstance(group.get("session_ids"), list) else []
     sessions_out = []
@@ -1353,7 +1353,7 @@ def api_update_group_settings(group_id: str, payload: dict = Body(...)):
 def api_delete_group(group_id: str):
     deleted = delete_group(group_id)
     if not deleted:
-        raise HTTPException(status_code=404, detail="Skupina nenalezena.")
+        raise HTTPException(status_code=404, detail="Group not found.")
     return {"group_id": group_id, "deleted": True}
 
 
@@ -1392,9 +1392,9 @@ def api_create_group(payload: dict = Body(...)):
     session_ids = payload.get("session_ids", [])
 
     if not name:
-        raise HTTPException(status_code=400, detail="Název skupiny je povinný.")
+        raise HTTPException(status_code=400, detail="Group name is required.")
     if not isinstance(session_ids, list) or not session_ids:
-        raise HTTPException(status_code=400, detail="Vyber alespoň jednu session.")
+        raise HTTPException(status_code=400, detail="Please select at least one session.")
 
     group_id = f"grp_{uuid4().hex[:12]}"
     try:
@@ -1409,13 +1409,13 @@ def api_create_group(payload: dict = Body(...)):
 def api_update_group(group_id: str, payload: dict = Body(...)):
     existing = next((g for g in list_groups() if g.get("id") == group_id), None)
     if not existing:
-        raise HTTPException(status_code=404, detail="Skupina nenalezena.")
+        raise HTTPException(status_code=404, detail="Group not found.")
 
     name = str(payload.get("name", existing.get("name", ""))).strip()
     test_id = str(payload.get("test_id", existing.get("test_id", "TEST"))).strip() or "TEST"
     session_ids = payload.get("session_ids", existing.get("session_ids", []))
     if not isinstance(session_ids, list):
-        raise HTTPException(status_code=400, detail="session_ids musí být pole.")
+        raise HTTPException(status_code=400, detail="session_ids must be a list.")
 
     try:
         group = upsert_group(group_id=group_id, test_id=test_id, name=name, session_ids=session_ids)

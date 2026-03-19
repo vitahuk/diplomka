@@ -505,8 +505,8 @@ function renderMetricGrid(metricsObj, containerEl) {
   if (!entries.length) {
     containerEl.innerHTML = `
       <div class="empty">
-        <div class="empty-title">Zatím nic</div>
-        <div class="muted small">Data nejsou k dispozici.</div>
+        <div class="empty-title">Nothing yet</div>
+        <div class="muted small">No data available.</div>
       </div>
     `;
     return;
@@ -567,8 +567,8 @@ function renderTestsList() {
   if (!state.tests.length) {
     listEl.innerHTML = `
       <div class="empty">
-        <div class="empty-title">Zatím žádné testy</div>
-        <div class="muted small">Klikni na „Přidat test“ a vytvoř nový uživatelský test.</div>
+        <div class="empty-title">No user experiments yet</div>
+        <div class="muted small">Click “Add user experiment” to create a new user experiment.</div>
       </div>
     `;
     return;
@@ -583,10 +583,10 @@ function renderTestsList() {
         <div class="row">
           <div class="title">${escapeHtml(displayName)}</div>
         </div>
-        <div class="muted small">Test pro práci se sessions a nastavením správných odpovědí.</div>
+        <div class="muted small"></div>
         <div class="row actions">
-          <button class="btn btn-ghost" data-action="settings" type="button">Nastavení</button>
-          <button class="btn" data-action="open" type="button">Otevřít test</button>
+          <button class="btn btn-ghost" data-action="settings" type="button">Settings</button>
+          <button class="btn" data-action="open" type="button">Open user experiment</button>
         </div>
       </div>
     `;
@@ -630,9 +630,9 @@ function renderTestAggMetrics() {
   if (!sessions.length) {
     el.innerHTML = `
       <div class="empty">
-        <div class="empty-title">Zatím nejsou data</div>
+        <div class="empty-title">No data yet</div>
         <div class="muted small">
-          Nahraj jednu nebo více sessions (CSV). Pak se zde zobrazí počet sessions v testu.
+          Upload one or more sessions (CSV). The number of sessions in the experiment will then be shown here.
         </div>
       </div>
     `;
@@ -640,7 +640,7 @@ function renderTestAggMetrics() {
   }
 
   renderMetricGrid(
-    { "Počet sessions v testu": sessions.length },
+    { "Number of sessions in the user experiment": sessions.length },
     el
   );
 }
@@ -700,9 +700,9 @@ function renderSessionFilterControls() {
     return base.concat(values.map(value => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`));
   };
 
-  genderEl.innerHTML = makeOptions(options.gender, "Vše");
-  occupationEl.innerHTML = makeOptions(options.occupation, "Vše");
-  nationalityEl.innerHTML = makeOptions(options.nationality, "Vše");
+  genderEl.innerHTML = makeOptions(options.gender, "All");
+  occupationEl.innerHTML = makeOptions(options.occupation, "All");
+  nationalityEl.innerHTML = makeOptions(options.nationality, "All");
 
   genderEl.value = state.sessionFilters.gender;
   occupationEl.value = state.sessionFilters.occupation;
@@ -764,11 +764,11 @@ function renderSessionsList() {
   const summaryEl = $("#sessionFilterSummary");
 
   if (!sessions.length) {
-    if (summaryEl) summaryEl.textContent = "Zobrazeno 0 z 0";
+    if (summaryEl) summaryEl.textContent = "Showing 0 of 0";
     listEl.innerHTML = `
       <div class="empty">
-        <div class="empty-title">Žádná session</div>
-        <div class="muted small">Nahraj CSV na nástěnce, potom se sem sessions doplní.</div>
+        <div class="empty-title">No sessions</div>
+        <div class="muted small">Upload a CSV file on the dashboard to see sessions here.</div>
       </div>
     `;
     return;
@@ -777,14 +777,14 @@ function renderSessionsList() {
   const filteredSessions = applySessionFilters(sessions);
   if (summaryEl) {
     const selectedCount = (state.selectedSessionIds ?? []).filter((sid) => sessions.some((s) => s.session_id === sid)).length;
-    summaryEl.textContent = `Zobrazeno ${filteredSessions.length} z ${sessions.length} · Vybráno ${selectedCount}`;
+    summaryEl.textContent = `Showing ${filteredSessions.length} z ${sessions.length} · Selected ${selectedCount}`;
   }
 
   if (!filteredSessions.length) {
     listEl.innerHTML = `
       <div class="empty">
-        <div class="empty-title">Žádná session neodpovídá filtru</div>
-        <div class="muted small">Uprav filtry nebo je zruš tlačítkem „Zrušit filtr“.</div>
+        <div class="empty-title">No sessions match the filter</div>
+        <div class="muted small">Adjust the filters or clear them using the "Clear filter" button.</div>
       </div>
     `;
     return;
@@ -865,8 +865,8 @@ function renderSessionMetrics() {
   if (!state.selectedSession) {
     el.innerHTML = `
       <div class="empty">
-        <div class="empty-title">Vyber session</div>
-        <div class="muted small">Klikni vlevo na session, aby se zde zobrazily její metriky.</div>
+        <div class="empty-title">Select a session</div>
+        <div class="muted small">Click a session on the left to display its metrics here.</div>
       </div>
     `;
     if (btn) btn.disabled = true;
@@ -878,15 +878,15 @@ function renderSessionMetrics() {
   const soc = sessionStats.soc_demo ?? {};
   const answersSummary = s.stats?.answers_eval?.summary ?? {};
   const mapping = {
-    tasks: ["Počet tasků", sessionStats.tasks_count ?? (Array.isArray(s.tasks) ? s.tasks.length : "—")],
-    events: ["Počet eventů", sessionStats.events_total ?? "—"],
-    duration: ["Celkový čas řešení", fmtMs(sessionStats.duration_ms)],
-    accuracy: ["Průměrná správnost odpovědí", fmtPercent(answersSummary.accuracy)],
-    age: ["Věk", soc.age ?? "—"],
-    gender: ["Pohlaví", soc.gender ?? "—"],
-    occupation: ["Zaměstnání", soc.occupation ?? "—"],
-    nationality: ["Národnost", soc.nationality ?? "—"],
-    education: ["Vzdělání", soc.education ?? "—"],
+    tasks: ["Number of tasks", sessionStats.tasks_count ?? (Array.isArray(s.tasks) ? s.tasks.length : "—")],
+    events: ["Number of events", sessionStats.events_total ?? "—"],
+    duration: ["Total completion time", fmtMs(sessionStats.duration_ms)],
+    accuracy: ["Average answer accuracy", fmtPercent(answersSummary.accuracy)],
+    age: ["Age", soc.age ?? "—"],
+    gender: ["Gender", soc.gender ?? "—"],
+    occupation: ["Occupation", soc.occupation ?? "—"],
+    nationality: ["Nationality", soc.nationality ?? "—"],
+    education: ["Education", soc.education ?? "—"],
     device: ["Device", soc.device ?? "—"],
   };
 
@@ -919,12 +919,12 @@ function renderSettingsStatus(text) {
 async function loadAnswersForSelectedTest() {
   const testId = state.selectedTestId ?? "TEST";
   try {
-    renderSettingsStatus("Načítám uložené odpovědi…");
+    renderSettingsStatus("Loading saved answers…");
     const out = await apiGetTestAnswers(testId);
     state.correctAnswers[testId] = out.answers ?? {};
-    renderSettingsStatus("Načteno.");
+    renderSettingsStatus("Loaded.");
   } catch (e) {
-    renderSettingsStatus(`Chyba načtení: ${e?.message ?? e}`);
+    renderSettingsStatus(`Error loading: ${e?.message ?? e}`);
     state.correctAnswers[testId] = state.correctAnswers[testId] ?? {};
   }
 }
@@ -1006,7 +1006,7 @@ async function setCorrectAnswerPersisted(testId, taskId, answerTextOrNull) {
   }
 
   try {
-    renderSettingsStatus("Ukládám…");
+    renderSettingsStatus("Saving...");
     const result = await apiPutTestAnswer(testId, taskId, answerTextOrNull);
     await refreshSessions();
     await refreshGroups();
@@ -1016,12 +1016,12 @@ async function setCorrectAnswerPersisted(testId, taskId, answerTextOrNull) {
 
     const recalculation = result?.recalculation;
     if (recalculation && Number.isFinite(Number(recalculation.matched))) {
-      renderSettingsStatus(`Uloženo. Přepočteno sessions: ${Number(recalculation.updated)}/${Number(recalculation.matched)}.`);
+      renderSettingsStatus(`Saved. Recalculated sessions: ${Number(recalculation.updated)}/${Number(recalculation.matched)}.`);
     } else {
-      renderSettingsStatus("Uloženo.");
+      renderSettingsStatus("Saved.");
     }
   } catch (e) {
-    renderSettingsStatus(`Chyba uložení: ${e?.message ?? e}`);
+    renderSettingsStatus(`Error saving: ${e?.message ?? e}`);
   }
 }
 
@@ -1034,7 +1034,7 @@ async function downloadSettingsAnswersCsv(kind = "answers") {
   try {
     if (btn) {
       btn.disabled = true;
-      btn.textContent = "Stahuji…";
+      btn.textContent = "Downloading…";
     }
 
     const url = isTemplate
@@ -1056,13 +1056,13 @@ async function downloadSettingsAnswersCsv(kind = "answers") {
     link.click();
     link.remove();
     URL.revokeObjectURL(link.href);
-    renderSettingsStatus(isTemplate ? "Vzorové CSV staženo." : "CSV se správnými odpověďmi staženo.");
+    renderSettingsStatus(isTemplate ? "Template CSV downloaded." : "Correct answers CSV downloaded.");
   } catch (e) {
-    renderSettingsStatus(`Chyba při stahování CSV: ${e?.message ?? e}`);
+    renderSettingsStatus(`Error downloading CSV: ${e?.message ?? e}`);
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.textContent = originalLabel || (isTemplate ? "Stáhnout vzorové CSV" : "Stáhnout CSV");
+      btn.textContent = originalLabel || (isTemplate ? "Download template CSV" : "Download CSV");
     }
   }
 }
@@ -1070,7 +1070,7 @@ async function downloadSettingsAnswersCsv(kind = "answers") {
 async function uploadSettingsAnswersCsv(file) {
   if (!file) return;
   const testId = state.selectedTestId ?? "TEST";
-  renderSettingsStatus("Nahrávám CSV se správnými odpověďmi…");
+  renderSettingsStatus("Uploading CSV with correct answers…");
 
   try {
     const out = await apiUploadTestAnswersCsv(testId, file);
@@ -1083,12 +1083,12 @@ async function uploadSettingsAnswersCsv(file) {
 
     const recalculation = out?.recalculation;
     const recalcText = recalculation && Number.isFinite(Number(recalculation.matched))
-      ? ` Přepočteno sessions: ${Number(recalculation.updated)}/${Number(recalculation.matched)}.`
+      ? ` Recalculated sessions: ${Number(recalculation.updated)}/${Number(recalculation.matched)}.`
       : "";
 
-    renderSettingsStatus(`CSV nahráno. Zpracováno řádků: ${Number(out?.rows_valid ?? 0)}.${recalcText}`);
+    renderSettingsStatus(`CSV uploaded. Processed rows: ${Number(out?.rows_valid ?? 0)}.${recalcText}`);
   } catch (e) {
-    renderSettingsStatus(`Chyba nahrání CSV: ${e?.message ?? e}`);
+    renderSettingsStatus(`Error uploading CSV: ${e?.message ?? e}`);
   }
 }
 
@@ -1107,9 +1107,9 @@ function renderSettingsSessionFilterControls() {
     return base.concat(values.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`));
   };
 
-  genderEl.innerHTML = makeOptions(options.gender, "Vše");
-  occupationEl.innerHTML = makeOptions(options.occupation, "Vše");
-  nationalityEl.innerHTML = makeOptions(options.nationality, "Vše");
+  genderEl.innerHTML = makeOptions(options.gender, "All");
+  occupationEl.innerHTML = makeOptions(options.occupation, "All");
+  nationalityEl.innerHTML = makeOptions(options.nationality, "All");
 
   genderEl.value = state.settingsSessionFilters.gender;
   occupationEl.value = state.settingsSessionFilters.occupation;
@@ -1145,16 +1145,16 @@ function renderSettingsSessionsTab() {
   const filtered = applySettingsSessionFilters(sessions);
   const selectedSet = new Set(state.settingsSessionSelection);
 
-  if (summaryEl) summaryEl.textContent = `Zobrazeno ${filtered.length} z ${sessions.length} · Vybráno ${selectedSet.size}`;
+  if (summaryEl) summaryEl.textContent = `Showing ${filtered.length} of ${sessions.length} · Selected ${selectedSet.size}`;
   if (statusEl && !statusEl.textContent) statusEl.textContent = "—";
 
   if (!sessions.length) {
-    listEl.innerHTML = `<div class="empty"><div class="empty-title">V tomto testu zatím nejsou sessions</div></div>`;
+    listEl.innerHTML = `<div class="empty"><div class="empty-title">There are no sessions in this test yet</div></div>`;
     return;
   }
 
   if (!filtered.length) {
-    listEl.innerHTML = `<div class="empty"><div class="empty-title">Žádná session neodpovídá filtru</div></div>`;
+    listEl.innerHTML = `<div class="empty"><div class="empty-title">No sessions match the filter</div></div>`;
     return;
   }
   listEl.innerHTML = filtered.map((s) => {
@@ -1217,8 +1217,8 @@ function renderSettingsPage() {
     if (!tasks.length) {
       listEl.innerHTML = `
         <div class="empty">
-          <div class="empty-title">Zatím žádné úlohy</div>
-          <div class="muted small">Nahraj aspoň jednu session (CSV), aby se načetly názvy úloh.</div>
+          <div class="empty-title">No tasks yet</div>
+          <div class="muted small">Upload at least one session (CSV) to load task names.</div>
         </div>
       `;
     } else {
@@ -1231,14 +1231,14 @@ function renderSettingsPage() {
             <div class="row" style="align-items:center; justify-content:space-between; gap:12px;">
               <div>
                 <div class="title">${escapeHtml(taskId)}</div>
-                <div class="muted small">Správná odpověď (text)</div>
+                <div class="muted small">Correct Answer (text)</div>
               </div>
 
               <input
                 type="text"
                 inputmode="text"
                 value="${escapeHtml(valueAttr)}"
-                placeholder="např. Praha"
+                placeholder="e.g., Prague"
                 style="width:140px;"
               />
             </div>
@@ -1282,7 +1282,7 @@ function openSettingsDeleteConfirmModal(mode) {
     state.settingsDeleteTarget = { mode: "test", count: 1 };
     const textEl = $("#settingsDeleteConfirmText");
     if (textEl) {
-      textEl.textContent = "Chystáte se smazat celý uživatelský test včetně všech sessions, skupin, odpovědí a dalších navázaných dat. Opravdu si přejete pokračovat?";
+      textEl.textContent = "You are about to delete the entire user experiment including all sessions, groups, answers and other linked data. Do you really want to continue?";
     }
     show($("#settingsDeleteConfirmModal"));
     return;
@@ -1290,7 +1290,7 @@ function openSettingsDeleteConfirmModal(mode) {
 
   if (!count) {
     const statusEl = $("#settingsSessionStatus");
-    if (statusEl) statusEl.textContent = mode === "all" ? "V testu nejsou žádné sessions ke smazání." : "Vyber nejprve aspoň jednu session.";
+    if (statusEl) statusEl.textContent = mode === "all" ? "There are no sessions to delete in this experiment." : "Select at least one session first.";
     return;
   }
 
@@ -1303,7 +1303,7 @@ function openSettingsDeleteConfirmModal(mode) {
 
   const textEl = $("#settingsDeleteConfirmText");
   if (textEl) {
-    textEl.textContent = `Chystáte se smazat ${count} sessions. Tímto dojde k jejich odstranění z databáze. Opravdu si přejete pokračovat?`;
+    textEl.textContent = `You are about to delete ${count} sessions. This will remove them from the database. Do you really want to continue?`;
   }
   show($("#settingsDeleteConfirmModal"));
 }
@@ -1323,7 +1323,7 @@ async function confirmDeleteSettingsSessions() {
   try {
     if (target.mode === "test") {
       const deletingTestId = state.selectedTestId ?? "TEST";
-      if (statusEl) statusEl.textContent = "Mazání uživatelského testu…";
+      if (statusEl) statusEl.textContent = "Deleting user experiment";
       await apiDeleteTest(deletingTestId);
       delete state.testSettings[deletingTestId];
       delete state.correctAnswers[deletingTestId];
@@ -1343,11 +1343,11 @@ async function confirmDeleteSettingsSessions() {
       renderSettingsPage();
       renderSessionsList();
       renderTestAggMetrics();
-      if (statusEl) statusEl.textContent = "Uživatelský test byl smazán.";
+      if (statusEl) statusEl.textContent = "User experiment deleted.";
       return;
     }
 
-    if (statusEl) statusEl.textContent = "Mazání session…";
+    if (statusEl) statusEl.textContent = "Deleting sessions…";
     if (target.mode === "all") {
       await apiDeleteAllSessions(testId);
     } else {
@@ -1361,9 +1361,9 @@ async function confirmDeleteSettingsSessions() {
     renderTestAggMetrics();
 
     state.settingsSessionSelection = [];
-    if (statusEl) statusEl.textContent = `Smazáno: ${target.count} sessions.`;
+    if (statusEl) statusEl.textContent = `Deleted: ${target.count} sessions.`;
   } catch (e) {
-    if (statusEl) statusEl.textContent = `Chyba mazání: ${e?.message ?? e}`;
+    if (statusEl) statusEl.textContent = `Error deleting: ${e?.message ?? e}`;
   } finally {
     closeSettingsDeleteConfirmModal();
   }
@@ -1379,7 +1379,7 @@ async function saveUserTestSettings() {
   const note = String(noteInput?.value ?? "");
 
   try {
-    if (statusEl) statusEl.textContent = "Ukládám nastavení testu…";
+    if (statusEl) statusEl.textContent = "Saving experiment settings…";
     const out = await apiUpdateTestSettings(previousTestId, { name, note });
     const updatedTestId = normalizeTestId(out?.test_id) ?? previousTestId;
 
@@ -1408,11 +1408,11 @@ async function saveUserTestSettings() {
     renderSettingsPage();
     if (statusEl) {
       statusEl.textContent = updatedTestId === previousTestId
-        ? "Uloženo."
-        : `Uloženo. ID testu změněno na: ${updatedTestId}`;
+        ? "Saved."
+        : `Saved. Experiment ID changed to: ${updatedTestId}`;
     }
   } catch (e) {
-    if (statusEl) statusEl.textContent = `Chyba uložení: ${e?.message ?? e}`;
+    if (statusEl) statusEl.textContent = `Error saving: ${e?.message ?? e}`;
   }
 }
 
@@ -1431,8 +1431,8 @@ function renderTasksList() {
   if (!state.selectedSession) {
     listEl.innerHTML = `
       <div class="empty">
-        <div class="empty-title">Vyber nejdřív session</div>
-        <div class="muted small">Úlohy se načtou až po výběru session v předchozím kroku.</div>
+        <div class="empty-title">Select a session first</div>
+        <div class="muted small">Tasks will be loaded once you select a session in the previous step.</div>
       </div>
     `;
     return;
@@ -1444,9 +1444,9 @@ function renderTasksList() {
     <div class="list-item" data-task="${escapeHtml(t)}">
       <div class="row">
         <div class="title">${escapeHtml(t)}</div>
-        <span class="pill">úloha</span>
+        <span class="pill">task</span>
       </div>
-      <div class="muted small">Klikni pro metriky (pop-up).</div>
+      <div class="muted small">Click for metrics (pop-up).</div>
     </div>
   `).join("");
 
@@ -1470,14 +1470,14 @@ async function openTaskModal(taskId) {
   const s = state.selectedSession;
 
   if (subtitle) {
-    subtitle.textContent = `Session: ${s?.session_id ?? "—"} · Úloha: ${taskId}`;
+    subtitle.textContent = `Session: ${s?.session_id ?? "—"} · Task: ${taskId}`;
   }
 
   if (metrics) {
     metrics.innerHTML = `
       <div class="empty">
-        <div class="empty-title">Načítám metriky…</div>
-        <div class="muted small">Chvilku strpení.</div>
+        <div class="empty-title">Loading metrics…</div>
+        <div class="muted small">Please wait.</div>
       </div>
     `;
   }
@@ -1493,30 +1493,30 @@ async function openTaskModal(taskId) {
   }
 
   if (!s?.session_id) {
-    setTaskMapPlaceholderStatus({ title: "Vyber session", detail: "Bez vybrané session nelze načíst mapová data." });
+    setTaskMapPlaceholderStatus({ title: "Select a session", detail: "Without a selected session, spatial data cannot be loaded." });
     return;
   }
 
   loadTaskSpatialTraceIntoMap(s.session_id, taskId).catch((e) => {
     clearTaskMapData();
-    setTaskMapPlaceholderStatus({ title: "Chyba při načítání dat", detail: e?.message ?? String(e), isError: true });
+    setTaskMapPlaceholderStatus({ title: "Error loading data", detail: e?.message ?? String(e), isError: true });
   });
 
   try {
     const m = await apiGetTaskMetrics(s.session_id, taskId);
 
     renderMetricGrid({
-      "Čas řešení úlohy": fmtMs(m.duration_ms),
-      "Počet eventů v úloze": m.events_total ?? "—",
-      "Odpověď uživatele": m.answer ?? "—",
-      "Správná odpověď": m.correct_answer ?? "—",
-      "Správně": m.is_correct === true ? "ANO" : (m.is_correct === false ? "NE" : "—"),
+      "Task Duration": fmtMs(m.duration_ms),
+      "Event Count": m.events_total ?? "—",
+      "User Answer": m.answer ?? "—",
+      "Correct Answer": m.correct_answer ?? "—",
+      "Correctly": m.is_correct === true ? "YES" : (m.is_correct === false ? "NO" : "—"),
     }, metrics);
   } catch (e) {
     if (metrics) {
       metrics.innerHTML = `
         <div class="empty">
-          <div class="empty-title">Chyba</div>
+          <div class="empty-title">Error</div>
           <div class="muted small">${escapeHtml(e?.message ?? e)}</div>
         </div>
       `;
@@ -1689,11 +1689,11 @@ function ensureTaskMapInitialized() {
   const viewportLayer = L.layerGroup().addTo(leafletMap);
 
   L.control.layers(baseLayers, {
-    "Body": pointsLayer,
-    "Trajektorie": trajectoryLayer,
-    "Body trajektorie": trajectoryPointsLayer,
-    "Začátek/konec": endpointLayer,
-    "Viewport obdélníky": viewportLayer,
+    "Points (pop-ups)": pointsLayer,
+    "Trajectory": trajectoryLayer,
+    "Trajectory Points": trajectoryPointsLayer,
+    "Start/End": endpointLayer,
+    "Viewports": viewportLayer,
   }, { collapsed: false }).addTo(leafletMap);
 
   state.taskMap = {
@@ -1743,7 +1743,7 @@ function renderTaskSpatialTraceToMap(spatialPayload) {
     layer.bindTooltip(label, { direction: "top", offset: [0, -8] });
   });
   state.taskMap.endpointLayer?.eachLayer?.((layer) => {
-    const kind = layer?.feature?.properties?.kind ?? "Bod";
+    const kind = layer?.feature?.properties?.kind ?? "Point";
     const ts = layer?.feature?.properties?.timestamp;
     const label = Number.isFinite(Number(ts)) ? `${kind} (${Number(ts)})` : String(kind);
     layer.bindTooltip(label, { direction: "top", offset: [0, -8] });
@@ -1756,7 +1756,7 @@ function renderTaskSpatialTraceToMap(spatialPayload) {
     const labelParts = [];
     if (Number.isFinite(Number(ts))) labelParts.push(`t=${Number(ts)}`);
     if (Number.isFinite(Number(zoom))) labelParts.push(`z=${Number(zoom)}`);
-    layer.bindTooltip(labelParts.join(" · ") || "Bod trajektorie", { direction: "top", offset: [0, -8] });
+    layer.bindTooltip(labelParts.join(" · ") || "Trajectory point", { direction: "top", offset: [0, -8] });
 
     const rect = makeViewportRectangle(bounds);
     if (rect && viewportLayer?.addLayer) {
@@ -1784,11 +1784,11 @@ function renderTaskSpatialTraceToMap(spatialPayload) {
     : 0;
   const endpoints = spatial?.movementEndpoints ?? {};
   const endpointCount = (endpoints?.start ? 1 : 0) + (endpoints?.end ? 1 : 0);
-  setTaskMapPlaceholderStatus({ title: "Data načtena", detail: `Body (popupopen): ${pointCount} · Body trajektorie (moveend): ${trackCount} · Začátek/konec: ${endpointCount} · Viewport obdélníky: ${viewportCount}` });
+  setTaskMapPlaceholderStatus({ title: "Data loaded", detail: `Points (pop-ups): ${pointCount} · Trajectory: ${trackCount} · Start/End: ${endpointCount} · Viewports: ${viewportCount}` });
 }
 
 async function loadTaskSpatialTraceIntoMap(sessionId, taskId) {
-  setTaskMapPlaceholderStatus({ title: "Načítám mapová data…", detail: "Probíhá příprava trajektorie a popup bodů pro úlohu." });
+  setTaskMapPlaceholderStatus({ title: "Loading map data…", detail: "Preparing trajectory and points for the task." });
   const payload = await apiGetSessionSpatialTrace(sessionId, taskId);
   renderTaskSpatialTraceToMap(payload);
 }
@@ -2106,8 +2106,8 @@ function renderTimelineModalContent(eventsPayload) {
   if (!events.length) {
     container.innerHTML = `
       <div class="empty">
-        <div class="empty-title">Žádné eventy</div>
-        <div class="muted small">Pro tuto session se nepodařilo načíst eventy.</div>
+        <div class="empty-title">No events</div>
+        <div class="muted small">Failed to load events for this session.</div>
       </div>
     `;
     return;
@@ -2129,7 +2129,7 @@ function renderTimelineModalContent(eventsPayload) {
       name: "INTRO",
       startTs: 0,
       endTs: firstEventTs,
-      details: ["čas před prvním eventem (čtení zadání)"],
+      details: ["time before the first event (reading instructions)"],
     });
   }
 
@@ -2148,7 +2148,7 @@ function renderTimelineModalContent(eventsPayload) {
         ? `\n${it.details.slice(0, 12).join("\n")}${it.details.length > 12 ? "\n…" : ""}`
         : "";
 
-      const tipText = `${it.name}\ntrvání: ${fmtSec(durSec)}${detailLines}`;
+      const tipText = `${it.name}\nduration: ${fmtSec(durSec)}${detailLines}`;
 
       return `
         <div
@@ -2168,7 +2168,7 @@ function renderTimelineModalContent(eventsPayload) {
     } else {
       const l = ((it.ts - startTs) / totalMs) * 100;
       const relSec = (it.ts - startTs) / 1000;
-      const tipText = `${it.name}\nčas: ${fmtSec(relSec)}${it.detail ? `\n${it.detail}` : ""}`;
+      const tipText = `${it.name}\ntime: ${fmtSec(relSec)}${it.detail ? `\n${it.detail}` : ""}`;
 
       return `
         <div
@@ -2241,7 +2241,7 @@ function renderTimelineModalContent(eventsPayload) {
       <!-- Slider + readout -->
       <div style="margin-top:12px;">
         <div class="row" style="align-items:center; gap:12px;">
-          <div class="muted small" style="min-width:80px;">Čas</div>
+          <div class="muted small" style="min-width:80px;">Time</div>
           <input
             id="timelineSlider"
             type="range"
@@ -2263,7 +2263,7 @@ function renderTimelineModalContent(eventsPayload) {
               <div class="v">—</div>
             </div>
             <div class="metric">
-              <div class="k">Čas</div>
+              <div class="k">Time</div>
               <div class="v">0.0 s</div>
             </div>
             <div class="metric">
@@ -2278,8 +2278,8 @@ function renderTimelineModalContent(eventsPayload) {
       ${legendHtml}
 
       <div class="muted small" style="margin-top:10px;">
-        Hover: ukáže typ eventu + trvání/čas + text z <b>event_detail</b> (pokud je k dispozici).
-        Slider: totéž pro konkrétní čas.
+        Hover: shows event type + duration/time + text from <b>event_detail</b> (if available).
+        Slider: same for a specific time.
       </div>
     </div>
   `;
@@ -2327,7 +2327,7 @@ function renderTimelineModalContent(eventsPayload) {
         const dLines = Array.isArray(it.details) && it.details.length
           ? it.details.slice(0, 6).join(" · ")
           : null;
-        det = `trvání ${fmtSec(d)}${dLines ? ` · ${dLines}` : ""}`;
+        det = `duration ${fmtSec(d)}${dLines ? ` · ${dLines}` : ""}`;
       } else {
         det = it.detail ?? "—";
       }
@@ -2341,7 +2341,7 @@ function renderTimelineModalContent(eventsPayload) {
             <div class="v">${escapeHtml(ev)}</div>
           </div>
           <div class="metric">
-            <div class="k">Čas</div>
+            <div class="k">Time</div>
             <div class="v">${escapeHtml(fmtSec(sec))}</div>
           </div>
           <div class="metric">
@@ -2385,8 +2385,8 @@ async function openTimelineModal() {
   if (content) {
     content.innerHTML = `
       <div class="empty">
-        <div class="empty-title">Načítám časovou osu…</div>
-        <div class="muted small">Chvilku strpení.</div>
+        <div class="empty-title">Loading Timeline…</div>
+        <div class="muted small">Please wait.</div>
       </div>
     `;
   }
@@ -2400,7 +2400,7 @@ async function openTimelineModal() {
     if (content) {
       content.innerHTML = `
         <div class="empty">
-          <div class="empty-title">Chyba</div>
+          <div class="empty-title">Error</div>
           <div class="muted small">${escapeHtml(e?.message ?? e)}</div>
         </div>
       `;
@@ -2418,7 +2418,7 @@ async function exportTimelineCsvForSelectedSession() {
 
   const baseName = `gazeplotter_timeline_${s.session_id}`;
   const suggested = `${baseName}.csv`;
-  const userInput = window.prompt("Název exportovaného souboru:", suggested);
+  const userInput = window.prompt("Exported file name:", suggested);
   if (userInput === null) return;
 
   let fileName = String(userInput || "").trim() || suggested;
@@ -2428,7 +2428,7 @@ async function exportTimelineCsvForSelectedSession() {
   const originalLabel = btn?.textContent;
   if (btn) {
     btn.disabled = true;
-    btn.textContent = "Exportuji…";
+    btn.textContent = "Exporting…";
   }
 
   try {
@@ -2449,7 +2449,7 @@ async function exportTimelineCsvForSelectedSession() {
     a.remove();
     URL.revokeObjectURL(url);
   } catch (e) {
-    window.alert(`Export selhal: ${e?.message ?? e}`);
+    window.alert(`Export failed: ${e?.message ?? e}`);
   } finally {
     if (btn) {
       btn.disabled = false;
@@ -2583,7 +2583,7 @@ function setMapPlaceholderStatus({ title, detail, isError = false }) {
   const box = $("#mapDataPlaceholder");
   if (!box) return;
   box.innerHTML = `
-    <div class="empty-title">${escapeHtml(title ?? "Stav mapy")}</div>
+    <div class="empty-title">${escapeHtml(title ?? "Map status")}</div>
     <div class="muted small${isError ? "" : ""}">${escapeHtml(detail ?? "")}</div>
   `;
 }
@@ -2700,8 +2700,8 @@ function buildEndpointFeatureCollection(spatial) {
   const out = [];
 
   [
-    ["Začátek", endpoints?.start],
-    ["Konec", endpoints?.end],
+    ["Start", endpoints?.start],
+    ["End", endpoints?.end],
   ].forEach(([kind, point]) => {
     if (!point) return;
     const lat = Number(point.lat);
@@ -2763,7 +2763,7 @@ function renderSpatialTraceToMap(spatialPayload) {
   });
 
   state.map.endpointLayer?.eachLayer?.((layer) => {
-    const kind = layer?.feature?.properties?.kind ?? "Bod";
+    const kind = layer?.feature?.properties?.kind ?? "Point";
     const ts = layer?.feature?.properties?.timestamp;
     const label = Number.isFinite(Number(ts)) ? `${kind} (${Number(ts)})` : String(kind);
     layer.bindTooltip(label, { direction: "top", offset: [0, -8] });
@@ -2776,7 +2776,7 @@ function renderSpatialTraceToMap(spatialPayload) {
     const labelParts = [];
     if (Number.isFinite(Number(ts))) labelParts.push(`t=${Number(ts)}`);
     if (Number.isFinite(Number(zoom))) labelParts.push(`z=${Number(zoom)}`);
-    layer.bindTooltip(labelParts.join(" · ") || "Bod trajektorie", { direction: "top", offset: [0, -8] });
+    layer.bindTooltip(labelParts.join(" · ") || "Trajectory point", { direction: "top", offset: [0, -8] });
 
     const rect = makeViewportRectangle(bounds);
     if (rect && viewportLayer?.addLayer) {
@@ -2805,13 +2805,13 @@ function renderSpatialTraceToMap(spatialPayload) {
   const endpoints = spatial?.movementEndpoints ?? {};
   const endpointCount = (endpoints?.start ? 1 : 0) + (endpoints?.end ? 1 : 0);
   setMapPlaceholderStatus({
-    title: "Data načtena",
-    detail: `Body (popupopen): ${pointCount} · Body trajektorie (moveend): ${trackCount} · Začátek/konec: ${endpointCount} · Viewport obdélníky: ${viewportCount}`,
+    title: "Data loaded",
+    detail: `Points (pop-ups): ${pointCount} · Trajectory points: ${trackCount} · Start/End: ${endpointCount} · Viewports: ${viewportCount}`,
   });
 }
 
 async function loadSpatialTraceIntoMap(sessionId) {
-  setMapPlaceholderStatus({ title: "Načítám mapová data…", detail: "Probíhá příprava trajektorie a popup bodů." });
+  setMapPlaceholderStatus({ title: "Loading map data…", detail: "Preparing trajectory and points." });
   const payload = await apiGetSessionSpatialTrace(sessionId);
   renderSpatialTraceToMap(payload);
 }
@@ -2893,11 +2893,11 @@ function ensureSessionMapInitialized() {
   const viewportLayer = L.layerGroup().addTo(leafletMap);
 
   L.control.layers(baseLayers, {
-    "Body": pointsLayer,
-    "Trajektorie": trajectoryLayer,
-    "Body trajektorie": trajectoryPointsLayer,
-    "Začátek/konec": endpointLayer,
-    "Viewport obdélníky": viewportLayer,
+    "Points": pointsLayer,
+    "Trajectory": trajectoryLayer,
+    "Trajectory Points": trajectoryPointsLayer,
+    "Start/End": endpointLayer,
+    "Viewports": viewportLayer,
   }, { collapsed: false }).addTo(leafletMap);
 
   state.map.leafletMap = leafletMap;
@@ -2918,8 +2918,8 @@ function openSessionMapModal() {
   const s = state.selectedSession;
   if (subtitle) {
     subtitle.textContent = s?.session_id
-      ? `Session: ${s.session_id} · user: ${s.user_id ?? "—"} · data: WGS84 (připraveno)`
-      : "Připraveno pro data ve WGS84.";
+      ? `Session: ${s.session_id} · user: ${s.user_id ?? "—"} · data: WGS84`
+      : "";
   }
 
   show($("#sessionMapModal"));
@@ -2932,14 +2932,14 @@ function openSessionMapModal() {
   }
 
   if (!s?.session_id) {
-    setMapPlaceholderStatus({ title: "Vyber session", detail: "Bez vybrané session nelze načíst mapová data." });
+    setMapPlaceholderStatus({ title: "Select a session", detail: "Map data cannot be loaded without a selected session." });
     return;
   }
 
   loadSpatialTraceIntoMap(s.session_id).catch((e) => {
     clearSessionMapData();
     setMapPlaceholderStatus({
-      title: "Chyba při načítání dat",
+      title: "Error loading data",
       detail: e?.message ?? String(e),
       isError: true,
     });
@@ -3093,7 +3093,7 @@ function buildGroupCompareRows(groups, taskId = null) {
 
     return {
       groupId: group.id,
-      groupName: group.name ?? "Bez názvu",
+      groupName: group.name ?? "No name",
       avgDurationMs,
       medianDurationMs,
       avgCorrectness,
@@ -3106,10 +3106,10 @@ function buildGroupCompareRows(groups, taskId = null) {
 function renderCompareTable({ rows }) {
   const sorted = [...rows].sort((a, b) => String(a.groupName).localeCompare(String(b.groupName), "cs"));
   const metrics = [
-    { label: "Průměrný čas", render: (row) => fmtMs(row.avgDurationMs) },
-    { label: "Medián času", render: (row) => fmtMs(row.medianDurationMs) },
-    { label: "Průměrná správnost", render: (row) => fmtPercent(row.avgCorrectness) },
-    { label: "Průměrný věk", render: (row) => (row.avgAge === null ? "—" : row.avgAge.toFixed(1)) },
+    { label: "Average time", render: (row) => fmtMs(row.avgDurationMs) },
+    { label: "Median time", render: (row) => fmtMs(row.medianDurationMs) },
+    { label: "Average correctness", render: (row) => fmtPercent(row.avgCorrectness) },
+    { label: "Average age", render: (row) => (row.avgAge === null ? "—" : row.avgAge.toFixed(1)) },
   ];
 
   return `
@@ -3117,7 +3117,7 @@ function renderCompareTable({ rows }) {
       <table class="compare-table">
         <thead>
           <tr>
-            <th>Metrika</th>
+            <th>Metric</th>
             ${sorted.map((row) => `<th>${escapeHtml(row.groupName)}</th>`).join("")}
           </tr>
         </thead>
@@ -3138,7 +3138,7 @@ function renderGroupCompareBoxplotTab(groups) {
   const wrap = $("#groupsCompareBoxplotWrap");
   if (!wrap) return;
   if (!groups.length) {
-    wrap.innerHTML = `<div class="empty"><div class="empty-title">Nejsou vybrané skupiny</div><div class="muted small">Na stránce Skupiny označ skupiny pro srovnání.</div></div>`;
+    wrap.innerHTML = `<div class="empty"><div class="empty-title">No groups selected</div><div class="muted small">Select groups for comparison on the Groups page.</div></div>`;
     return;
   }
   const statsByGroup = groups
@@ -3159,7 +3159,7 @@ function renderGroupCompareBoxplotTab(groups) {
     .filter(Boolean);
 
   if (!statsByGroup.length) {
-    wrap.innerHTML = `<div class="empty"><div class="empty-title">Nedostatek dat pro vykreslení</div><div class="muted small">Vybrané skupiny nemají dostupné časy řešení.</div></div>`;
+    wrap.innerHTML = `<div class="empty"><div class="empty-title">Not enough data to render</div><div class="muted small">The selected groups do not have completion times available.</div></div>`;
     return;
   }
 
@@ -3201,10 +3201,10 @@ function renderGroupCompareBoxplotTab(groups) {
     </div>
     <div class="boxplot-meaning-legend">
       <span><span class="boxplot-legend-mark box"></span>Box (Q1–Q3)</span>
-      <span><span class="boxplot-legend-mark median"></span>Medián</span>
-      <span><span class="boxplot-legend-mark whisker"></span>Vousy (bez odlehlých hodnot)</span>
-      <span><span class="boxplot-legend-mark average"></span>Průměr</span>
-      <span><span class="boxplot-legend-mark outlier"></span>Odlehlé hodnoty</span>
+      <span><span class="boxplot-legend-mark median"></span>Median</span>
+      <span><span class="boxplot-legend-mark whisker"></span>Whiskers</span>
+      <span><span class="boxplot-legend-mark average"></span>Average</span>
+      <span><span class="boxplot-legend-mark outlier"></span>Outliers</span>
     </div>
     <div class="group-boxplot-grid">
       ${statsByGroup.map((item) => {
@@ -3224,8 +3224,8 @@ function renderGroupCompareBoxplotTab(groups) {
           <article class="group-boxplot-card">
             <div class="group-boxplot-title">${escapeHtml(item.name)}</div>
             <div class="compare-chart-canvas-wrap boxplot-canvas-wrap">
-              <svg viewBox="0 0 ${width} ${height}" class="compare-chart-svg boxplot-svg" role="img" aria-label="Boxplot skupiny ${escapeHtml(item.name)}">
-                <text x="${width / 2}" y="20" class="compare-chart-title">Časy řešení</text>
+              <svg viewBox="0 0 ${width} ${height}" class="compare-chart-svg boxplot-svg" role="img" aria-label="Group boxplot ${escapeHtml(item.name)}">
+                <text x="${width / 2}" y="20" class="compare-chart-title">Completion times</text>
                 ${ticks.map((tick) => {
                   const y = valueToY(tick);
                   return `
@@ -3241,19 +3241,19 @@ function renderGroupCompareBoxplotTab(groups) {
                 <line x1="${cx - boxHalfWidth * 0.55}" y1="${yHigh}" x2="${cx + boxHalfWidth * 0.55}" y2="${yHigh}" stroke="${escapeHtml(item.color)}" stroke-width="2.2" />
                 <line x1="${cx - boxHalfWidth * 0.55}" y1="${yLow}" x2="${cx + boxHalfWidth * 0.55}" y2="${yLow}" stroke="${escapeHtml(item.color)}" stroke-width="2.2" />
 
-                <rect x="${boxLeft}" y="${Math.min(yQ3, yQ1)}" width="${boxWidth}" height="${Math.max(2, Math.abs(yQ1 - yQ3))}" fill="${escapeHtml(item.color)}22" stroke="${escapeHtml(item.color)}" stroke-width="2.2" class="boxplot-hover-target" data-group="${escapeHtml(item.name)}" data-metric="IQR (Q1–Q3)" data-value="${escapeHtml(`${fmtMs(item.stats.q1)} až ${fmtMs(item.stats.q3)}`)}" data-extra="IQR: ${escapeHtml(fmtMs(item.stats.iqr))}" data-plot-x="${cx}" data-plot-y="${(yQ1 + yQ3) / 2}" />
+                <rect x="${boxLeft}" y="${Math.min(yQ3, yQ1)}" width="${boxWidth}" height="${Math.max(2, Math.abs(yQ1 - yQ3))}" fill="${escapeHtml(item.color)}22" stroke="${escapeHtml(item.color)}" stroke-width="2.2" class="boxplot-hover-target" data-group="${escapeHtml(item.name)}" data-metric="IQR (Q1–Q3)" data-value="${escapeHtml(`${fmtMs(item.stats.q1)} to ${fmtMs(item.stats.q3)}`)}" data-extra="IQR: ${escapeHtml(fmtMs(item.stats.iqr))}" data-plot-x="${cx}" data-plot-y="${(yQ1 + yQ3) / 2}" />
 
-                <line x1="${boxLeft}" y1="${yMedian}" x2="${boxLeft + boxWidth}" y2="${yMedian}" stroke="${escapeHtml(item.color)}" stroke-width="3" class="boxplot-hover-target" data-group="${escapeHtml(item.name)}" data-metric="Medián" data-value="${escapeHtml(fmtMs(item.stats.median))}" data-plot-x="${cx}" data-plot-y="${yMedian}" />
+                <line x1="${boxLeft}" y1="${yMedian}" x2="${boxLeft + boxWidth}" y2="${yMedian}" stroke="${escapeHtml(item.color)}" stroke-width="3" class="boxplot-hover-target" data-group="${escapeHtml(item.name)}" data-metric="Median" data-value="${escapeHtml(fmtMs(item.stats.median))}" data-plot-x="${cx}" data-plot-y="${yMedian}" />
 
-                <line x1="${cx}" y1="${yHigh}" x2="${cx}" y2="${yLow}" stroke="transparent" stroke-width="18" class="boxplot-hover-target" data-group="${escapeHtml(item.name)}" data-metric="Rozsah vousů" data-value="${escapeHtml(`${fmtMs(item.stats.whiskerLow)} až ${fmtMs(item.stats.whiskerHigh)}`)}" data-extra="Spodní vous: ${escapeHtml(fmtMs(item.stats.whiskerLow))}, horní vous: ${escapeHtml(fmtMs(item.stats.whiskerHigh))}" data-plot-x="${cx}" data-plot-y="${(yLow + yHigh) / 2}" />
+                <line x1="${cx}" y1="${yHigh}" x2="${cx}" y2="${yLow}" stroke="transparent" stroke-width="18" class="boxplot-hover-target" data-group="${escapeHtml(item.name)}" data-metric="Whisker range" data-value="${escapeHtml(`${fmtMs(item.stats.whiskerLow)} to ${fmtMs(item.stats.whiskerHigh)}`)}" data-extra="Lower whisker: ${escapeHtml(fmtMs(item.stats.whiskerLow))}, upper whisker ${escapeHtml(fmtMs(item.stats.whiskerHigh))}" data-plot-x="${cx}" data-plot-y="${(yLow + yHigh) / 2}" />
 
-                <line x1="${cx - 8}" y1="${yAverage - 8}" x2="${cx + 8}" y2="${yAverage + 8}" stroke="#0f172a" stroke-width="2" class="boxplot-hover-target" data-group="${escapeHtml(item.name)}" data-metric="Průměr" data-value="${escapeHtml(fmtMs(item.stats.average))}" data-plot-x="${cx}" data-plot-y="${yAverage}" />
-                <line x1="${cx - 8}" y1="${yAverage + 8}" x2="${cx + 8}" y2="${yAverage - 8}" stroke="#0f172a" stroke-width="2" class="boxplot-hover-target" data-group="${escapeHtml(item.name)}" data-metric="Průměr" data-value="${escapeHtml(fmtMs(item.stats.average))}" data-plot-x="${cx}" data-plot-y="${yAverage}" />
+                <line x1="${cx - 8}" y1="${yAverage - 8}" x2="${cx + 8}" y2="${yAverage + 8}" stroke="#0f172a" stroke-width="2" class="boxplot-hover-target" data-group="${escapeHtml(item.name)}" data-metric="Average" data-value="${escapeHtml(fmtMs(item.stats.average))}" data-plot-x="${cx}" data-plot-y="${yAverage}" />
+                <line x1="${cx - 8}" y1="${yAverage + 8}" x2="${cx + 8}" y2="${yAverage - 8}" stroke="#0f172a" stroke-width="2" class="boxplot-hover-target" data-group="${escapeHtml(item.name)}" data-metric="Average" data-value="${escapeHtml(fmtMs(item.stats.average))}" data-plot-x="${cx}" data-plot-y="${yAverage}" />
 
                 ${item.stats.outliers.map((val, outIdx) => {
                   const outX = cx + ((outIdx % 2 === 0 ? -1 : 1) * (10 + ((outIdx % 3) * 6)));
                   const outY = valueToY(val);
-                  return `<circle cx="${outX}" cy="${outY}" r="4" fill="${escapeHtml(item.color)}" stroke="#111827" stroke-width="1" class="boxplot-hover-target" data-group="${escapeHtml(item.name)}" data-metric="Odlehlá hodnota" data-value="${escapeHtml(fmtMs(val))}" data-plot-x="${outX}" data-plot-y="${outY}" />`;
+                  return `<circle cx="${outX}" cy="${outY}" r="4" fill="${escapeHtml(item.color)}" stroke="#111827" stroke-width="1" class="boxplot-hover-target" data-group="${escapeHtml(item.name)}" data-metric="Outlier" data-value="${escapeHtml(fmtMs(val))}" data-plot-x="${outX}" data-plot-y="${outY}" />`;
                 }).join("")}
 
                 <text x="${width / 2}" y="${height - 22}" class="compare-chart-x-label">n = ${item.stats.count}</text>
@@ -3303,7 +3303,7 @@ function renderGroupCompareBoxplotTab(groups) {
 }
 
 const GROUP_COMPARE_DIMENSIONS = {
-  nationality: { label: "Národnost", key: "nationality" },
+  nationality: { label: "Nationality", key: "nationality" },
 };
 
 const GROUP_COMPARE_COLOR_PALETTE = [
@@ -3329,7 +3329,7 @@ function getGroupDimensionAccuracyMap(group, dimensionKey) {
     const accuracy = Number(session?.stats?.answers_eval?.summary?.accuracy);
     if (!Number.isFinite(accuracy)) return;
 
-    const category = String(rawCategory ?? "Nezadáno").trim() || "Nezadáno";
+    const category = String(rawCategory ?? "Unspecified").trim() || "Unspecified";
     if (!map.has(category)) map.set(category, []);
     map.get(category).push(accuracy * 100);
   });
@@ -3374,7 +3374,7 @@ function buildGroupCompareChartData(groups) {
   categories.sort((a, b) => {
     const scoreDiff = scoreForCategory(b) - scoreForCategory(a);
     if (scoreDiff !== 0) return scoreDiff;
-    return a.localeCompare(b, "cs");
+    return a.localeCompare(b, "en");
   });
 
   return {
@@ -3424,7 +3424,7 @@ function renderGroupCompareChartTab(groups) {
   if (!wrap) return;
 
   if (!groups.length) {
-    wrap.innerHTML = `<div class="empty"><div class="empty-title">Nejsou vybrané skupiny</div><div class="muted small">Na stránce Skupiny označ skupiny pro srovnání.</div></div>`;
+    wrap.innerHTML = `<div class="empty"><div class="empty-title">No groups selected</div><div class="muted small">Select groups for comparison on the Groups page.</div></div>`;
     return;
   }
 
@@ -3435,7 +3435,7 @@ function renderGroupCompareChartTab(groups) {
   const chartData = buildGroupCompareChartData(groups);
 
   if (!chartData.categories.length || !chartData.series.length) {
-    wrap.innerHTML = `<div class="empty"><div class="empty-title">Nedostatek dat pro vykreslení</div><div class="muted small">Zvol jiné skupiny nebo dimenzi na ose X.</div></div>`;
+    wrap.innerHTML = `<div class="empty"><div class="empty-title">Not enough data to render</div><div class="muted small">Choose different groups or a different X-axis dimension.</div></div>`;
     return;
   }
 
@@ -3448,14 +3448,14 @@ function renderGroupCompareChartTab(groups) {
         </select>
       </label>
       <label class="filter-field" style="min-width:220px; margin:0;">
-        <span>Řazení osy X</span>
+        <span>X-axis ordering</span>
         <select id="groupCompareChartSortModeSelect">
-          <option value="overall" ${state.groupCompareChartSortMode === "overall" ? "selected" : ""}>Dle průměru všech skupin</option>
-          <option value="reference" ${state.groupCompareChartSortMode === "reference" ? "selected" : ""}>Dle referenční skupiny</option>
+          <option value="overall" ${state.groupCompareChartSortMode === "overall" ? "selected" : ""}>By average of all groups</option>
+          <option value="reference" ${state.groupCompareChartSortMode === "reference" ? "selected" : ""}>By reference group</option>
         </select>
       </label>
       <label class="filter-field" style="min-width:220px; margin:0; ${state.groupCompareChartSortMode === "reference" ? "" : "opacity:.55;"}">
-        <span>Referenční skupina</span>
+        <span>Reference group</span>
         <select id="groupCompareChartReferenceSelect" ${state.groupCompareChartSortMode === "reference" ? "" : "disabled"}>
           ${groups.map((group) => `<option value="${escapeHtml(group.id)}" ${state.groupCompareChartReferenceGroupId === group.id ? "selected" : ""}>${escapeHtml(group.name ?? group.id)}</option>`).join("")}
         </select>
@@ -3512,7 +3512,7 @@ function renderGroupCompareChartTab(groups) {
       <g>
         <path d="${pathParts.join(" ")}" fill="none" stroke="${escapeHtml(item.color)}" stroke-width="2.3" stroke-linejoin="round" stroke-linecap="round" />
         ${points.map((p) => `
-          <circle cx="${p.x}" cy="${p.y}" r="4.5" fill="${escapeHtml(item.color)}" class="compare-chart-point" data-group="${escapeHtml(item.groupName)}" data-category="${escapeHtml(p.category)}" data-value="${escapeHtml(`${p.baseValue.toFixed(1)} %`)}" data-offset="${escapeHtml(p.offset ? `${p.offset > 0 ? "+" : ""}${p.offset.toFixed(2)} p. b.` : "0.00 p. b.")}" data-plot-x="${p.x}" data-plot-y="${p.y}" />
+          <circle cx="${p.x}" cy="${p.y}" r="4.5" fill="${escapeHtml(item.color)}" class="compare-chart-point" data-group="${escapeHtml(item.groupName)}" data-category="${escapeHtml(p.category)}" data-value="${escapeHtml(`${p.baseValue.toFixed(1)} %`)}" data-offset="${escapeHtml(p.offset ? `${p.offset > 0 ? "+" : ""}${p.offset.toFixed(2)} pp` : "0.00 pp")}" data-plot-x="${p.x}" data-plot-y="${p.y}" />
         `).join("")}
       </g>
     `;
@@ -3534,8 +3534,8 @@ function renderGroupCompareChartTab(groups) {
       `).join("")}
     </div>
     <div class="compare-chart-canvas-wrap">
-      <svg viewBox="0 0 ${width} ${height}" class="compare-chart-svg" role="img" aria-label="Srovnání správnosti odpovědí mezi skupinami">
-        <text x="${width / 2}" y="18" class="compare-chart-title">Správnost odpovědí (%)</text>
+      <svg viewBox="0 0 ${width} ${height}" class="compare-chart-svg" role="img" aria-label="Comparison of answer accuracy between groups">
+        <text x="${width / 2}" y="18" class="compare-chart-title">Answer correctness (%)</text>
         ${gridLines}
         <line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${height - margin.bottom}" class="compare-chart-axis" />
         <line x1="${margin.left}" y1="${height - margin.bottom}" x2="${width - margin.right}" y2="${height - margin.bottom}" class="compare-chart-axis" />
@@ -3544,7 +3544,7 @@ function renderGroupCompareChartTab(groups) {
       </svg>
       <div class="compare-chart-tooltip hidden" id="groupCompareChartTooltip"></div>
     </div>
-    <div class="muted small">Stejné (nebo téměř stejné) hodnoty se automaticky seskupují a dostávají drobný vizuální offset, aby se body nepřekrývaly.</div>
+    <div class="muted small">Identical (or nearly identical) values are automatically grouped and given a slight visual offset so the points do not overlap.</div>
   `;
 
   const rerender = () => renderGroupCompareModal();
@@ -3597,7 +3597,7 @@ function renderGroupCompareChartTab(groups) {
       tooltip.innerHTML = `
         <div><strong>${escapeHtml(point.dataset.group ?? "")}</strong></div>
         <div>${escapeHtml(point.dataset.category ?? "")}: <strong>${escapeHtml(point.dataset.value ?? "")}</strong></div>
-        <div class="muted small">Offset (snapping): ${escapeHtml(point.dataset.offset ?? "0.00 p. b.")}</div>
+        <div class="muted small">Offset (snapping): ${escapeHtml(point.dataset.offset ?? "0.00 pp")}</div>
       `;
       positionTooltipNearPoint(point);
     });
@@ -3647,15 +3647,15 @@ function renderGroupTimeStats(group) {
 
   panel.classList.remove("hidden");
   if (!stats) {
-    panel.innerHTML = `<div class="title">Statistiky času řešení testu</div><div class="muted small">Nedostatek dat pro výpočet statistik.</div>`;
+    panel.innerHTML = `<div class="title">Experiment completion time statistics</div><div class="muted small">Not enough data to compute statistics.</div>`;
     return;
   }
 
   panel.innerHTML = `
-    <div class="title">Statistiky času řešení testu</div>
+    <div class="title">Experiment completion time statistics</div>
     <div class="metrics group-stats-grid" style="margin-top:10px;">
-      ${renderGroupStatMetric("Průměr", fmtMs(stats.avg))}
-      ${renderGroupStatMetric("Medián", fmtMs(stats.median))}
+      ${renderGroupStatMetric("Average", fmtMs(stats.avg))}
+      ${renderGroupStatMetric("Median", fmtMs(stats.median))}
       ${renderGroupStatMetric("Minimum", fmtMs(stats.min))}
       ${renderGroupStatMetric("Maximum", fmtMs(stats.max))}
     </div>
@@ -3670,19 +3670,19 @@ function renderGroupCountsStats(group) {
   const eventsStats = computeNumericStats(sessions.map((s) => s?.stats?.session?.events_total));
 
   panel.classList.remove("hidden");
-  panel.innerHTML = `<div class="title">Statistiky tasků a eventů</div>`;
+  panel.innerHTML = `<div class="title">Task and event statistics</div>`;
   if (!tasksStats && !eventsStats) {
-    panel.innerHTML += `<div class="muted small">Nedostatek dat pro výpočet statistik.</div>`;
+    panel.innerHTML += `<div class="muted small">Not enough data to compute statistics.</div>`;
     return;
   }
 
   if (tasksStats) {
     panel.innerHTML += `
       <div class="metrics group-stats-grid" style="margin-top:10px;">
-        ${renderGroupStatMetric("Tasky – průměr", tasksStats.avg.toFixed(2))}
-        ${renderGroupStatMetric("Tasky – medián", tasksStats.median.toFixed(2))}
-        ${renderGroupStatMetric("Tasky – minimum", tasksStats.min)}
-        ${renderGroupStatMetric("Tasky – maximum", tasksStats.max)}
+        ${renderGroupStatMetric("Tasks – average", tasksStats.avg.toFixed(2))}
+        ${renderGroupStatMetric("Tasks – median", tasksStats.median.toFixed(2))}
+        ${renderGroupStatMetric("Tasks – minimum", tasksStats.min)}
+        ${renderGroupStatMetric("Tasks – maximum", tasksStats.max)}
       </div>
     `;
   }
@@ -3690,10 +3690,10 @@ function renderGroupCountsStats(group) {
   if (eventsStats) {
     panel.innerHTML += `
       <div class="metrics group-stats-grid" style="margin-top:10px;">
-        ${renderGroupStatMetric("Eventy – průměr", eventsStats.avg.toFixed(2))}
-        ${renderGroupStatMetric("Eventy – medián", eventsStats.median.toFixed(2))}
-        ${renderGroupStatMetric("Eventy – minimum", eventsStats.min)}
-        ${renderGroupStatMetric("Eventy – maximum", eventsStats.max)}
+        ${renderGroupStatMetric("Events – average", eventsStats.avg.toFixed(2))}
+        ${renderGroupStatMetric("Events – median", eventsStats.median.toFixed(2))}
+        ${renderGroupStatMetric("Events – minimum", eventsStats.min)}
+        ${renderGroupStatMetric("Events – maximum", eventsStats.max)}
       </div>
     `;
   }
@@ -3727,17 +3727,17 @@ function renderGroupSocioStats(group) {
   panel.innerHTML = `
     <div class="title">Socioekonomické statistiky skupiny</div>
     <div class="metrics group-stats-grid" style="margin-top:10px;">
-      ${renderGroupStatMetric("Průměrný věk", ageStats ? ageStats.avg.toFixed(1) : "—")}
-      ${renderGroupStatMetric("Pohlaví", distribution("gender"))}
-      ${renderGroupStatMetric("Zaměstnání", distribution("occupation"))}
-      ${renderGroupStatMetric("Národnost", distribution("nationality"))}
+      ${renderGroupStatMetric("Average age", ageStats ? ageStats.avg.toFixed(1) : "—")}
+      ${renderGroupStatMetric("Gender", distribution("gender"))}
+      ${renderGroupStatMetric("Occupation", distribution("occupation"))}
+      ${renderGroupStatMetric("Nationality", distribution("nationality"))}
     </div>
   `;
 }
 
 function renderMiniWordcloud(words = []) {
   if (!Array.isArray(words) || !words.length) {
-    return `<div class="muted small">Zatím nejsou dostupná textová data odpovědí.</div>`;
+    return `<div class="muted small">No answer data available yet.</div>`;
   }
   const max = Math.max(...words.map((w) => Number(w.count) || 1), 1);
   return `<div class="wordcloud">${words.slice(0, 60).map((w) => {
@@ -3752,11 +3752,11 @@ async function renderGroupAnswersAndWordcloud(group) {
   const panel = $("#groupAnswersPanel");
   if (!panel) return;
   if (!group?.id) {
-    panel.innerHTML = `<div class="title">Vyhodnocení odpovědí</div><div class="muted small">Vyber skupinu.</div>`;
+    panel.innerHTML = `<div class="title">Answer evaluation</div><div class="muted small">Select a group.</div>`;
     return;
   }
 
-  panel.innerHTML = `<div class="title">Vyhodnocení odpovědí</div><div class="muted small">Načítám…</div>`;
+  panel.innerHTML = `<div class="title">Answer evaluation</div><div class="muted small">Loading…</div>`;
 
   try {
     const answersPayload = await apiGetGroupAnswers(group.id);
@@ -3765,19 +3765,19 @@ async function renderGroupAnswersAndWordcloud(group) {
     const wordcloud = await apiGetGroupWordcloud(group.id, selectedTask);
 
     const selector = tasks.length
-      ? `<label class="filter-field" style="max-width:320px;"><span>Úloha</span><select id="groupWordcloudTaskSelect">${tasks.map((taskId) => `<option value="${escapeHtml(taskId)}" ${taskId===selectedTask?"selected":""}>${escapeHtml(taskId)}</option>`).join("")}</select></label>`
-      : `<div class="muted small">Skupina zatím nemá odpovědi navázané na úlohy.</div>`;
+      ? `<label class="filter-field" style="max-width:320px;"><span>Task</span><select id="groupWordcloudTaskSelect">${tasks.map((taskId) => `<option value="${escapeHtml(taskId)}" ${taskId===selectedTask?"selected":""}>${escapeHtml(taskId)}</option>`).join("")}</select></label>`
+      : `<div class="muted small">Group has no answers linked to tasks yet.</div>`;
 
     const taskRecord = selectedTask ? answersPayload?.tasks?.[selectedTask] : null;
     const acc = taskRecord?.accuracy;
     const summary = taskRecord
-      ? `Správně: ${taskRecord.correct_count}/${taskRecord.total_count}${Number.isFinite(acc) ? ` (${(acc*100).toFixed(1)} %)` : ""}`
-      : "Bez odpovědí pro vybranou úlohu.";
+      ? `Correct: ${taskRecord.correct_count}/${taskRecord.total_count}${Number.isFinite(acc) ? ` (${(acc*100).toFixed(1)} %)` : ""}`
+      : "No answers for the selected task.";
 
     panel.innerHTML = `
       <div class="row" style="justify-content:space-between; align-items:end; gap:10px; flex-wrap:wrap;">
         <div>
-          <div class="title">Vyhodnocení odpovědí + wordcloud</div>
+          <div class="title">Answer evaluation + wordcloud</div>
           <div class="muted small">${escapeHtml(summary)}</div>
         </div>
         ${selector}
@@ -3793,7 +3793,7 @@ async function renderGroupAnswersAndWordcloud(group) {
       if (wrap) wrap.innerHTML = renderMiniWordcloud(cloud?.words ?? []);
     });
   } catch (e) {
-    panel.innerHTML = `<div class="title">Vyhodnocení odpovědí</div><div class="muted small">Chyba načtení: ${escapeHtml(e?.message ?? e)}</div>`;
+    panel.innerHTML = `<div class="title">Answer evaluation</div><div class="muted small">Loading error: ${escapeHtml(e?.message ?? e)}</div>`;
   }
 }
 
@@ -3801,7 +3801,7 @@ function renderGroupCompareAnswersTab(groups) {
   const wrap = $("#groupsCompareWordcloudWrap");
   if (!wrap) return;
   if (!groups.length) {
-    wrap.innerHTML = `<div class="empty"><div class="empty-title">Nejsou vybrané skupiny</div></div>`;
+    wrap.innerHTML = `<div class="empty"><div class="empty-title">No groups selected</div></div>`;
     return;
   }
 
@@ -3813,13 +3813,13 @@ function renderGroupCompareAnswersTab(groups) {
   const options = allTasks.map((taskId) => `<option value="${escapeHtml(taskId)}" ${taskId===state.selectedGroupCompareTaskId?"selected":""}>${escapeHtml(taskId)}</option>`).join("");
   wrap.innerHTML = `
     <div class="row" style="justify-content:space-between; align-items:end; gap:10px; flex-wrap:wrap; margin-bottom:8px;">
-      <div class="muted small">Odpovědi podle skupin pro stejnou úlohu.</div>
+      <div class="muted small">Answers by group for the same task.</div>
       <label class="filter-field" style="max-width:320px; margin:0;">
-        <span>Úloha</span>
+        <span>Task</span>
         <select id="groupsCompareWordcloudTaskSelect">${options}</select>
       </label>
     </div>
-    <div class="wordcloud-grid" id="groupsCompareWordcloudGrid"><div class="muted small">Načítám…</div></div>
+    <div class="wordcloud-grid" id="groupsCompareWordcloudGrid"><div class="muted small">Loading…</div></div>
   `;
 
   const load = async () => {
@@ -3847,8 +3847,8 @@ function renderGroupCompareAnswersTab(groups) {
     const byId = new Map((res?.groups ?? []).map((g) => [g.group_id, g.words ?? []]));
         const statsHtml = `
       <div class="card" style="padding:10px; margin-bottom:10px;">
-        <div class="title">Průměrná správnost</div>
-        <div class="muted small" style="margin-top:6px;">Globálně: <b>${escapeHtml(fmtPercent(globalAcc))}</b></div>
+        <div class="title">Average correctness</div>
+        <div class="muted small" style="margin-top:6px;">Overall: <b>${escapeHtml(fmtPercent(globalAcc))}</b></div>
         <div class="muted small" style="margin-top:4px;">${summaries.map((s) => `${escapeHtml(s.groupName)}: ${escapeHtml(fmtPercent(s.accuracy))}`).join(" · ")}</div>
       </div>
     `;
@@ -3864,13 +3864,13 @@ function renderGroupCompareAnswersTab(groups) {
 
   load().catch((e) => {
     const grid = $("#groupsCompareWordcloudGrid");
-    if (grid) grid.innerHTML = `<div class="muted small">Chyba načtení: ${escapeHtml(e?.message ?? e)}</div>`;
+    if (grid) grid.innerHTML = `<div class="muted small">Loading error: ${escapeHtml(e?.message ?? e)}</div>`;
   });
 
   $("#groupsCompareWordcloudTaskSelect")?.addEventListener("change", () => {
     load().catch((e) => {
       const grid = $("#groupsCompareWordcloudGrid");
-      if (grid) grid.innerHTML = `<div class="muted small">Chyba načtení: ${escapeHtml(e?.message ?? e)}</div>`;
+      if (grid) grid.innerHTML = `<div class="muted small">Loading error: ${escapeHtml(e?.message ?? e)}</div>`;
     });
   });
 }
@@ -3894,14 +3894,14 @@ function renderGroupsPage() {
   if (!state.groups.length) {
     groupsListEl.innerHTML = `
       <div class="empty">
-        <div class="empty-title">Zatím nejsou vytvořené skupiny</div>
-        <div class="muted small">Na stránce Sessions vyber uživatele a vytvoř první skupinu.</div>
+        <div class="empty-title">No groups created yet</div>
+        <div class="muted small">On the Sessions page, select users and create your first group.</div>
       </div>
     `;
     usersListEl.innerHTML = `
       <div class="empty">
-        <div class="empty-title">Vyber skupinu</div>
-        <div class="muted small">Po vytvoření skupiny se zde zobrazí členové.</div>
+        <div class="empty-title">Select a group</div>
+        <div class="muted small">Once you create a group, members will be displayed here.</div>
       </div>
     `;
     usersListEl.style.display = "none";
@@ -3916,7 +3916,7 @@ function renderGroupsPage() {
   }
 
   if (!filteredGroups.length) {
-    groupsListEl.innerHTML = `<div class="empty"><div class="empty-title">Žádná skupina neodpovídá filtru</div><div class="muted small">Zkus upravit hledaný text.</div></div>`;
+    groupsListEl.innerHTML = `<div class="empty"><div class="empty-title">No groups match the filter</div><div class="muted small">Try adjusting the search text.</div></div>`;
   } else {
     groupsListEl.innerHTML = filteredGroups.map((g) => {
     const selected = g.id === state.selectedGroupId ? "is-selected" : "";
@@ -3927,9 +3927,9 @@ function renderGroupsPage() {
         <div class="row">
           <label class="row" style="justify-content:flex-start; gap:10px;">
             <input type="checkbox" data-role="group-compare-select" data-group="${escapeHtml(g.id)}" ${checked} />
-            <div class="title">${escapeHtml(g.name ?? "Bez názvu")}</div>
+            <div class="title">${escapeHtml(g.name ?? "Untitled")}</div>
           </label>
-          <span class="pill">${count} uživatelů</span>
+          <span class="pill">${count} users</span>
         </div>
       </div>
     `;
@@ -3961,7 +3961,7 @@ function renderGroupsPage() {
   const group = getSelectedGroup();
   if (!group) {
     usersPanelEl.classList.add("hidden");
-    usersListEl.innerHTML = `<div class="empty"><div class="empty-title">Vyber skupinu</div></div>`;
+    usersListEl.innerHTML = `<div class="empty"><div class="empty-title">Select a group</div></div>`;
     usersListEl.style.display = "none";
     timePanelEl?.classList.add("hidden");
     countsPanelEl?.classList.add("hidden");
@@ -3976,14 +3976,14 @@ function renderGroupsPage() {
 
   const sessions = Array.isArray(group.sessions) ? group.sessions : [];
   usersToggleEl.textContent = state.isGroupUsersExpanded
-    ? `Sbalit uživatele ve skupině (${sessions.length})`
-    : `Rozbalit uživatele ve skupině (${sessions.length})`;
+    ? `Collapse users in group (${sessions.length})`
+    : `Expand users in group (${sessions.length})`;
   usersListEl.style.display = state.isGroupUsersExpanded ? "grid" : "none";
   if (!sessions.length) {
     usersListEl.innerHTML = `
       <div class="empty">
-        <div class="empty-title">Skupina je prázdná</div>
-        <div class="muted small">Použij tlačítko Editace skupiny pro přidání uživatelů.</div>
+        <div class="empty-title">Group is empty</div>
+        <div class="muted small">Use the group edit button to add users.</div>
       </div>
     `;
   } else {
@@ -3992,7 +3992,7 @@ function renderGroupsPage() {
       return `
         <div class="list-item">
           <div class="row"><div class="title">${escapeHtml(s.user_id ?? "—")}</div></div>
-          <div class="muted small">session: ${escapeHtml(s.session_id ?? "—")} · eventů: ${escapeHtml(ss.events_total ?? "—")} · délka: ${escapeHtml(fmtMs(ss.duration_ms))}</div>
+          <div class="muted small">session: ${escapeHtml(s.session_id ?? "—")} · events: ${escapeHtml(ss.events_total ?? "—")} · duration: ${escapeHtml(fmtMs(ss.duration_ms))}</div>
         </div>
       `;
     }).join("");
@@ -4014,11 +4014,11 @@ function openCreateGroupModal() {
   const validSelected = selected.filter((sid) => sessions.some((s) => s.session_id === sid));
   const statusEl = $("#groupCreateStatus");
   if (!validSelected.length) {
-    if (statusEl) statusEl.textContent = "Nejprve vyber aspoň jednu session.";
+    if (statusEl) statusEl.textContent = "Select at least one session first.";
     return;
   }
 
-  if (statusEl) statusEl.textContent = `Vybráno sessions: ${validSelected.length}`;
+  if (statusEl) statusEl.textContent = `Selected sessions: ${validSelected.length}`;
   const nameInput = $("#groupNameInput");
   if (nameInput) nameInput.value = "";
   show($("#groupCreateModal"));
@@ -4036,16 +4036,16 @@ async function saveCreatedGroup() {
   const validSelected = (state.selectedSessionIds ?? []).filter((sid) => sessions.some((s) => s.session_id === sid));
 
   if (!name) {
-    if (statusEl) statusEl.textContent = "Vyplň název skupiny.";
+    if (statusEl) statusEl.textContent = "Enter the group name.";
     return;
   }
   if (!validSelected.length) {
-    if (statusEl) statusEl.textContent = "Vyber aspoň jednu session.";
+    if (statusEl) statusEl.textContent = "Select at least one session first.";
     return;
   }
 
   try {
-    if (statusEl) statusEl.textContent = "Ukládám skupinu…";
+    if (statusEl) statusEl.textContent = "Saving group…";
     await apiCreateGroup({
       name,
       test_id: state.selectedTestId ?? "TEST",
@@ -4055,7 +4055,7 @@ async function saveCreatedGroup() {
     renderGroupsPage();
     closeCreateGroupModal();
   } catch (e) {
-    if (statusEl) statusEl.textContent = `Chyba: ${e?.message ?? e}`;
+    if (statusEl) statusEl.textContent = `Error: ${e?.message ?? e}`;
   }
 }
 
@@ -4092,9 +4092,9 @@ function renderGroupEditFilterControls(sessions) {
     return base.concat(values.map(value => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`));
   };
 
-  genderEl.innerHTML = makeOptions(options.gender, "Vše");
-  occupationEl.innerHTML = makeOptions(options.occupation, "Vše");
-  nationalityEl.innerHTML = makeOptions(options.nationality, "Vše");
+  genderEl.innerHTML = makeOptions(options.gender, "All");
+  occupationEl.innerHTML = makeOptions(options.occupation, "All");
+  nationalityEl.innerHTML = makeOptions(options.nationality, "All");
 
   genderEl.value = state.groupEditFilters.gender;
   occupationEl.value = state.groupEditFilters.occupation;
@@ -4106,15 +4106,15 @@ function renderGroupEditFilterControls(sessions) {
 }
 
 const SESSION_METRIC_OPTIONS = [
-  { key: "tasks", label: "Počet tasků" },
-  { key: "events", label: "Počet eventů" },
-  { key: "duration", label: "Celkový čas řešení" },
-  { key: "accuracy", label: "Průměrná správnost odpovědí" },
-  { key: "age", label: "Věk" },
-  { key: "gender", label: "Pohlaví" },
-  { key: "occupation", label: "Zaměstnání" },
-  { key: "nationality", label: "Národnost" },
-  { key: "education", label: "Vzdělání" },
+  { key: "tasks", label: "Number of tasks" },
+  { key: "events", label: "Number of events" },
+  { key: "duration", label: "Total completion time" },
+  { key: "accuracy", label: "Average answer correctness" },
+  { key: "age", label: "Age" },
+  { key: "gender", label: "Gender" },
+  { key: "occupation", label: "Occupation" },
+  { key: "nationality", label: "Nationality" },
+  { key: "education", label: "Education" },
   { key: "device", label: "Device" },
 ];
 
@@ -4151,7 +4151,7 @@ function renderGroupEditSessionMetrics() {
   const selectedId = state.groupEditSelectedSessionId;
   const selected = sessions.find((s) => s.session_id === selectedId) ?? null;
   if (!selected) {
-    el.innerHTML = `<div class="empty"><div class="empty-title">Vyber session vlevo</div></div>`;
+    el.innerHTML = `<div class="empty"><div class="empty-title">Select a session on the left</div></div>`;
     return;
   }
 
@@ -4159,15 +4159,15 @@ function renderGroupEditSessionMetrics() {
   const soc = st.soc_demo ?? {};
   const answersSummary = selected.stats?.answers_eval?.summary ?? {};
   const mapping = {
-    tasks: ["Počet tasků", st.tasks_count ?? (Array.isArray(selected.tasks) ? selected.tasks.length : "—")],
-    events: ["Počet eventů", st.events_total ?? "—"],
-    duration: ["Celkový čas řešení", fmtMs(st.duration_ms)],
-    accuracy: ["Průměrná správnost odpovědí", fmtPercent(answersSummary.accuracy)],
-    age: ["Věk", soc.age ?? "—"],
-    gender: ["Pohlaví", soc.gender ?? "—"],
-    occupation: ["Zaměstnání", soc.occupation ?? "—"],
-    nationality: ["Národnost", soc.nationality ?? "—"],
-    education: ["Vzdělání", soc.education ?? "—"],
+    tasks: ["Number of tasks", st.tasks_count ?? (Array.isArray(selected.tasks) ? selected.tasks.length : "—")],
+    events: ["Number of events", st.events_total ?? "—"],
+    duration: ["Total completion time", fmtMs(st.duration_ms)],
+    accuracy: ["Average answer correctness", fmtPercent(answersSummary.accuracy)],
+    age: ["Age", soc.age ?? "—"],
+    gender: ["Gender", soc.gender ?? "—"],
+    occupation: ["Occupation", soc.occupation ?? "—"],
+    nationality: ["Nationality", soc.nationality ?? "—"],
+    education: ["Education", soc.education ?? "—"],
     device: ["Device", soc.device ?? "—"],
   };
 
@@ -4193,11 +4193,11 @@ function renderGroupEditSessionsList() {
   if (summaryEl) {
     const selectedCount = sessions.filter((x) => selectedSet.has(x.session_id)).length;
     const flaggedCount = sessions.filter((x) => flaggedSet.has(x.session_id)).length;
-    summaryEl.textContent = `Zobrazeno ${filtered.length} z ${sessions.length} · Vybráno ${selectedCount} · ! ${flaggedCount}`;
+    summaryEl.textContent = `Showing ${filtered.length} of ${sessions.length} · Selected ${selectedCount} · Flagged ! ${flaggedCount}`;
   }
 
   if (!filtered.length) {
-    listEl.innerHTML = `<div class="empty"><div class="empty-title">Žádná session neodpovídá filtru</div></div>`;
+    listEl.innerHTML = `<div class="empty"><div class="empty-title">No sessions match the filter</div></div>`;
     renderGroupEditSessionMetrics();
     return;
   }
@@ -4216,7 +4216,7 @@ function renderGroupEditSessionsList() {
               <div class="muted small">session: ${escapeHtml(s.session_id)}</div>
             </div>
           </label>
-          <button class="btn btn-ghost group-edit-flag ${flagged}" aria-pressed="${flaggedSet.has(s.session_id) ? "true" : "false"}" data-role="group-edit-flag" data-session="${escapeHtml(s.session_id)}" type="button" title="Označit !">!</button>
+          <button class="btn btn-ghost group-edit-flag ${flagged}" aria-pressed="${flaggedSet.has(s.session_id) ? "true" : "false"}" data-role="group-edit-flag" data-session="${escapeHtml(s.session_id)}" type="button" title="Flag">!</button>
         </div>
       </div>
     `;
@@ -4304,7 +4304,7 @@ function openGroupEditModal() {
   const noteInput = $("#groupEditNoteInput");
   if (noteInput) noteInput.value = String(group.note ?? "");
   const subtitle = $("#groupEditPageSubtitle");
-  if (subtitle) subtitle.textContent = `Skupina: ${group.name ?? "—"} (${(group.session_ids ?? []).length} sessions)`;
+  if (subtitle) subtitle.textContent = `Group: ${group.name ?? "—"} (${(group.session_ids ?? []).length} sessions)`;
 
   const statusEl = $("#groupEditStatus");
   if (statusEl) statusEl.textContent = "";
@@ -4333,7 +4333,7 @@ async function exportCurrentGroupCsv() {
   const group = getSelectedGroup();
   const statusEl = $("#groupEditStatus");
   if (!group?.id) {
-    if (statusEl) statusEl.textContent = "Nejdřív vyber skupinu.";
+    if (statusEl) statusEl.textContent = "Please select a group first.";
     return;
   }
 
@@ -4360,9 +4360,9 @@ async function exportCurrentGroupCsv() {
     a.remove();
     URL.revokeObjectURL(url);
 
-    if (statusEl) statusEl.textContent = `CSV export hotový (${filename}).`;
+    if (statusEl) statusEl.textContent = `CSV export complete (${filename}).`;
   } catch (e) {
-    if (statusEl) statusEl.textContent = `Export CSV selhal: ${e.message}`;
+    if (statusEl) statusEl.textContent = `CSV export failed: ${e.message}`;
   }
 }
 
@@ -4371,10 +4371,10 @@ function openGroupSplitModal() {
   const selected = state.groupEditSessionIds ?? [];
   if (!selected.length) {
     const mainStatus = $("#groupEditStatus");
-    if (mainStatus) mainStatus.textContent = "Vyber aspoň jednu session pro novou skupinu.";
+    if (mainStatus) mainStatus.textContent = "Please select at least one session for the new group.";
     return;
   }
-  if (statusEl) statusEl.textContent = `Vybráno sessions: ${selected.length}`;
+  if (statusEl) statusEl.textContent = `Selected sessions: ${selected.length}`;
   const input = $("#groupSplitNameInput");
   if (input) input.value = "";
   show($("#groupSplitModal"));
@@ -4390,18 +4390,18 @@ async function createGroupFromEditSelection() {
   const statusEl = $("#groupSplitStatus");
   const selected = state.groupEditSessionIds ?? [];
   if (!group || !name || !selected.length) {
-    if (statusEl) statusEl.textContent = "Vyplň název a vyber sessions.";
+    if (statusEl) statusEl.textContent = "Please fill in the name and select sessions.";
     return;
   }
   try {
-    if (statusEl) statusEl.textContent = "Vytvářím skupinu…";
+    if (statusEl) statusEl.textContent = "Creating group…";
     await apiCreateGroup({ name, test_id: group.test_id, session_ids: selected });
     await refreshGroups();
-    if (statusEl) statusEl.textContent = "Hotovo";
+    if (statusEl) statusEl.textContent = "Complete";
     closeGroupSplitModal();
     renderGroupsPage();
   } catch (e) {
-    if (statusEl) statusEl.textContent = `Chyba: ${e?.message ?? e}`;
+    if (statusEl) statusEl.textContent = `Error: ${e?.message ?? e}`;
   }
 }
 
@@ -4411,20 +4411,20 @@ async function deleteFlaggedFromGroup() {
   if (!group) return;
   const flagged = new Set(state.groupEditFlaggedSessionIds ?? []);
   if (!flagged.size) {
-    if (statusEl) statusEl.textContent = "Nejsou označené žádné sessions (!).";
+    if (statusEl) statusEl.textContent = "No sessions are flagged !.";
     return;
   }
   const remaining = (group.session_ids ?? []).filter((sid) => !flagged.has(sid));
   try {
-    if (statusEl) statusEl.textContent = "Odebírám označené ze skupiny…";
+    if (statusEl) statusEl.textContent = "Removing flagged sessions from the group…";
     await apiUpdateGroup(group.id, { name: group.name, test_id: group.test_id, session_ids: remaining });
     await refreshGroups();
     state.groupEditFlaggedSessionIds = [];
     state.groupEditSelectedSessionId = remaining[0] ?? null;
     renderGroupEditSessionsList();
-    if (statusEl) statusEl.textContent = "Odebráno ze skupiny.";
+    if (statusEl) statusEl.textContent = "Removed from group.";
   } catch (e) {
-    if (statusEl) statusEl.textContent = `Chyba: ${e?.message ?? e}`;
+    if (statusEl) statusEl.textContent = `Error: ${e?.message ?? e}`;
   }
 }
 
@@ -4437,7 +4437,7 @@ function renderGroupCompareSummaryTab(groups) {
   const wrap = $("#groupsCompareTableWrap");
   if (!wrap) return;
   if (!groups.length) {
-    wrap.innerHTML = `<div class="empty"><div class="empty-title">Nejsou vybrané skupiny</div><div class="muted small">Na stránce Skupiny označ skupiny pro srovnání.</div></div>`;
+    wrap.innerHTML = `<div class="empty"><div class="empty-title">No groups selected</div><div class="muted small">Select groups to compare on the Groups page.</div></div>`;
     return;
   }
 
@@ -4455,7 +4455,7 @@ function renderGroupCompareTaskTab(groups) {
   const filteredTasks = allTasks.filter((taskId) => normalizeSearchText(taskId).includes(q));
 
   if (!allTasks.length) {
-    taskListEl.innerHTML = `<div class="empty"><div class="empty-title">Žádné úlohy</div><div class="muted small">Vybrané skupiny zatím neobsahují úlohy.</div></div>`;
+    taskListEl.innerHTML = `<div class="empty"><div class="empty-title">No tasks</div><div class="muted small">The selected groups do not contain any tasks yet.</div></div>`;
     tableWrap.innerHTML = "";
     return;
   }
@@ -4469,7 +4469,7 @@ function renderGroupCompareTaskTab(groups) {
       const selected = taskId === state.selectedGroupCompareTaskId ? "is-selected" : "";
       return `<div class="list-item ${selected}" data-role="compare-task-item" data-task="${escapeHtml(taskId)}"><div class="title">${escapeHtml(taskId)}</div></div>`;
     }).join("")
-    : `<div class="empty"><div class="empty-title">Žádná úloha neodpovídá filtru</div></div>`;
+    : `<div class="empty"><div class="empty-title">No task matches the filter</div></div>`;
 
   $$("#groupTaskList [data-role='compare-task-item']").forEach((item) => {
     item.addEventListener("click", () => {
@@ -4485,7 +4485,7 @@ function renderGroupCompareTaskTab(groups) {
 
   const rows = buildGroupCompareRows(groups, state.selectedGroupCompareTaskId);
   tableWrap.innerHTML = `
-    <div class="muted small" style="margin-bottom:8px;">Úloha: <b>${escapeHtml(state.selectedGroupCompareTaskId)}</b></div>
+    <div class="muted small" style="margin-bottom:8px;">Task: <b>${escapeHtml(state.selectedGroupCompareTaskId)}</b></div>
     ${renderCompareTable({ rows })}
   `;
 }
@@ -4496,7 +4496,7 @@ function renderGroupCompareModal() {
 
   const groups = getGroupsForComparison();
   const subtitle = $("#groupsCompareSubtitle");
-  if (subtitle) subtitle.textContent = `Vybráno skupin: ${groups.length}`;
+  if (subtitle) subtitle.textContent = `Groups selected: ${groups.length}`;
 
   $$("#groupsCompareTabs .tab-btn").forEach((btn) => {
     btn.classList.toggle("is-active", btn.dataset.tab === state.groupCompareTab);
@@ -4530,7 +4530,7 @@ async function saveGroupEdit() {
   if (!group) return;
 
   try {
-    if (statusEl) statusEl.textContent = "Ukládám změny…";
+    if (statusEl) statusEl.textContent = "Saving changes…";
     const current = getSelectedGroup();
     await apiUpdateGroup(group.id, {
       name: group.name,
@@ -4547,7 +4547,7 @@ async function saveGroupEdit() {
     renderGroupsPage();
     closeGroupEditModal();
   } catch (e) {
-    if (statusEl) statusEl.textContent = `Chyba: ${e?.message ?? e}`;
+    if (statusEl) statusEl.textContent = `Error: ${e?.message ?? e}`;
   }
 }
 
@@ -4555,16 +4555,16 @@ async function deleteCurrentGroup() {
   const group = getSelectedGroup();
   const statusEl = $("#groupEditStatus");
   if (!group) return;
-  if (!window.confirm(`Opravdu chcete smazat skupinu „${group.name}“?`)) return;
+  if (!window.confirm(`Do you really want to delete the group „${group.name}“?`)) return;
 
   try {
-    if (statusEl) statusEl.textContent = "Mažu skupinu…";
+    if (statusEl) statusEl.textContent = "Deleting group…";
     closeGroupEditModal();
     await apiDeleteGroup(group.id);
     await refreshGroups();
     renderGroupsPage();
   } catch (e) {
-    if (statusEl) statusEl.textContent = `Chyba: ${e?.message ?? e}`;
+    if (statusEl) statusEl.textContent = `Error: ${e?.message ?? e}`;
   }
 }
 
@@ -4805,7 +4805,7 @@ function wireNavButtons() {
   $("#groupEditDeleteFlaggedBtn")?.addEventListener("click", deleteFlaggedFromGroup);
   $("#groupEditExportCsvBtn")?.addEventListener("click", exportCurrentGroupCsv);
 
-  //Timeline button (on "Úlohy v session" page, right column)
+  //Timeline button (on "Tasks in session" page, right column)
   $("#openTimelineBtn")?.addEventListener("click", () => {
     openTimelineModal();
   });
@@ -4824,7 +4824,7 @@ function wireNavButtons() {
 
 function wireTestControls() {
   $("#addTestBtn")?.addEventListener("click", async () => {
-    const raw = window.prompt("Zadej název nového testu:");
+    const raw = window.prompt("Enter the name of the new user experiment:");
     const testId = normalizeTestId(raw);
     if (!testId) return;
 
@@ -4832,9 +4832,8 @@ function wireTestControls() {
       await apiCreateTest({ test_id: testId });
     } catch (e) {
       if (String(e?.message ?? "").toLowerCase().includes("already exists")) {
-        // test už existuje – pokračujeme výběrem
       } else {
-        window.alert(`Nepodařilo se vytvořit test: ${e?.message ?? e}`);
+        window.alert(`Failed to create user experiment: ${e?.message ?? e}`);
         return;
       }
     }
@@ -5000,11 +4999,11 @@ function wireUpload() {
     state.pendingUpload = null;
     
     const statusEl = $("#uploadStatus");
-    if (statusEl) statusEl.textContent = `Nahrávám: ${file.name}…`;
+    if (statusEl) statusEl.textContent = `Uploading: ${file.name}…`;
 
     try {
       const out = await apiUpload(file, testId ?? "TEST");
-      if (statusEl) statusEl.textContent = `Nahráno: ${out.session_id} (user: ${out.user_id ?? "—"})`;
+      if (statusEl) statusEl.textContent = `Uploaded: ${out.session_id} (user: ${out.user_id ?? "—"})`;
 
       await refreshSessions();
       renderTestAggMetrics();
@@ -5029,7 +5028,7 @@ function wireUpload() {
       }
 
     } catch (ex) {
-      if (statusEl) statusEl.textContent = `Chyba: ${ex?.message ?? ex}`;
+      if (statusEl) statusEl.textContent = `Error: ${ex?.message ?? ex}`;
     } finally {
       input.value = "";
     }
@@ -5050,11 +5049,11 @@ function wireBulkUpload() {
     state.pendingUpload = null;
 
     const statusEl = $("#uploadStatus");
-    if (statusEl) statusEl.textContent = `Nahrávám hromadné CSV: ${file.name}…`;
+    if (statusEl) statusEl.textContent = `Uploading bulk CSV: ${file.name}…`;
 
     try {
       const out = await apiUploadBulk(file, testId ?? "TEST");
-      if (statusEl) statusEl.textContent = `Nahráno hromadné CSV: ${out.count ?? 0} sessions`;
+      if (statusEl) statusEl.textContent = `Uploaded bulk CSV: ${out.count ?? 0} sessions`;
 
       await refreshSessions();
       renderTestAggMetrics();
@@ -5078,7 +5077,7 @@ function wireBulkUpload() {
         renderSettingsPage();
       }
     } catch (ex) {
-      if (statusEl) statusEl.textContent = `Chyba: ${ex?.message ?? ex}`;
+      if (statusEl) statusEl.textContent = `Error: ${ex?.message ?? ex}`;
     } finally {
       input.value = "";
     }
@@ -5223,7 +5222,7 @@ async function init() {
     await loadTestsCatalogFromBackend();
   } catch (e) {
     const statusEl = $("#uploadStatus");
-    if (statusEl) statusEl.textContent = `Backend nedostupný: ${e?.message ?? e}`;
+    if (statusEl) statusEl.textContent = `Backend unavailable: ${e?.message ?? e}`;
   }
 
   renderTestsList();
