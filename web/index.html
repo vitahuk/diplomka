@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="cs">
+<html lang="en">
 
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>MapTrack Analytics – MVP</title>
+  <title>App without a name (for now)</title>
   <link rel="stylesheet" href="/static/styles.css?v=32" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
@@ -18,7 +18,7 @@
       <div class="topbar-left">
         <div class="brand">
           <span class="brand-dot"></span>
-          MapTrack Analytics
+          App without a name (for now)
         </div>
 
         <div class="breadcrumb" aria-label="Breadcrumb">
@@ -32,10 +32,10 @@
 
       <div class="topbar-right">
         <button class="upload-chip" id="uploadSingleBtn" type="button" title="Nahraj CSV (session)">
-          + Nahrát CSV (session)
+          + Upload CSV (single session)
         </button>
         <button class="upload-chip" id="uploadBulkBtn" type="button" title="Nahraj hromadné CSV">
-          + Nahrát hromadné CSV
+          + Nahrát bulk CSV (multiple sessions)
         </button>
         <input id="csvInput" type="file" accept=".csv" hidden />
         <input id="bulkCsvInput" type="file" accept=".csv" hidden />
@@ -49,9 +49,9 @@
       <section class="page" id="view-dashboard">
         <div class="page-head">
           <div>
-            <h1>Nástěnka</h1>
+            <h1>Dashboard</h1>
             <p class="muted">
-              Nejprve vyber uživatelský test. Testy si můžeš přidat ručně a přepínat mezi nimi.
+              
             </p>
           </div>
         </div>
@@ -61,16 +61,16 @@
           <section class="card">
             <div class="card-head">
               <div class="row" style="align-items:center;">
-                <h2>Uživatelské testy</h2>
-                <button class="btn btn-ghost" id="addTestBtn" type="button">+ Přidat test</button>
+                <h2>User experiments</h2>
+                <button class="btn btn-ghost" id="addTestBtn" type="button">+ Add user experiment</button>
               </div>
-              <div class="muted small">Kliknutím vybereš test. Tlačítkem pokračuješ na seznam sessions.</div>
+              <div class="muted small">Click to select a user experiment. Click the "Open" button to proceed to the list of sessions.</div>
             </div>
 
             <div class="list" id="testsList"></div>
 
             <div class="hint">
-              <div class="hint-title">Poznámka</div>
+              <div class="hint-title">Note</div>
               <div class="muted small">
                 Nahrané CSV = jedna session (jeden uživatel). Hromadné CSV vytvoří jednu session pro každý <b>userid</b>
                 v souboru.
@@ -82,16 +82,16 @@
           <!-- Basic metrics -->
           <section class="card">
             <div class="card-head">
-              <h2>Základní metriky</h2>
+              <h2>Basic metrics</h2>
               <div class="muted small">
               </div>
             </div>
 
             <div class="metrics" id="testAggMetrics">
               <div class="empty">
-                <div class="empty-title">Zatím nejsou data</div>
+                <div class="empty-title">No data availabe yet.</div>
                 <div class="muted small">
-                  Nahraj jednu nebo více sessions (CSV). Pak se zde zobrazí počet sessions v testu.
+                  Upload one or more sessions (CSV). Basic metrics will then be displayed here.
                 </div>
               </div>
             </div>
@@ -103,9 +103,9 @@
       <section class="page hidden" id="view-settings">
         <div class="page-head">
           <div>
-            <h1>Nastavení</h1>
+            <h1>Settings</h1>
             <p class="muted">
-              Uživatelský test: <b id="settingsTestName">—</b>
+              User experiment: <b id="settingsTestName">—</b>
             </p>
           </div>
           <div class="page-actions">
@@ -115,33 +115,33 @@
 
         <section class="card">
           <div class="tab-row" id="settingsTabs" role="tablist" aria-label="Nastavení testu">
-            <button class="tab-btn is-active" type="button" role="tab" data-tab="answers" aria-selected="true">Správné odpovědi</button>
-            <button class="tab-btn" type="button" role="tab" data-tab="sessions" aria-selected="false">Editace nahraných session</button>
-            <button class="tab-btn" type="button" role="tab" data-tab="user-test" aria-selected="false">Nastavení uživatelského testu</button>
+            <button class="tab-btn is-active" type="button" role="tab" data-tab="answers" aria-selected="true">Correct answers</button>
+            <button class="tab-btn" type="button" role="tab" data-tab="sessions" aria-selected="false">Edit uploaded sessions</button>
+            <button class="tab-btn" type="button" role="tab" data-tab="user-test" aria-selected="false">User experiment settings</button>
           </div>
 
           <section class="tab-panel" data-panel="answers">
             <div class="card-head">
-              <h2>Správné odpovědi úloh</h2>
+              <h2>Correct answers</h2>
               <div class="muted small">
-                Ke každé úloze zadej správnou odpověď (text). Ukládá se automaticky.
+                For each task, enter the correct answer (text). It will be saved automatically.
               </div>
             </div>
 
           <div class="list" id="settingsTasksList">
               <div class="empty">
-                <div class="empty-title">Zatím žádné úlohy</div>
-                <div class="muted small">Nahraj aspoň jednu session (CSV), aby se načetly názvy úloh.</div>
+                <div class="empty-title">No tasks yet</div>
+                <div class="muted small">Upload at least one session (CSV) to load task names.</div>
               </div>
             </div>
 
             <div class="card-foot foot-split">
               <div class="muted small" id="settingsStatus">—</div>
               <div class="row" style="gap:8px;">
-                <button class="btn btn-ghost" id="settingsDownloadAnswersCsvBtn" type="button">Stáhnout CSV</button>
-                <button class="btn btn-ghost" id="settingsUploadAnswersCsvBtn" type="button">Nahrát CSV</button>
-                <button class="btn btn-ghost" id="settingsDownloadTemplateCsvBtn" type="button">Stáhnout vzorové CSV</button>
-                <button class="btn btn-ghost" id="settingsReloadBtn" type="button">Obnovit</button>
+                <button class="btn btn-ghost" id="settingsDownloadAnswersCsvBtn" type="button">Download CSV</button>
+                <button class="btn btn-ghost" id="settingsUploadAnswersCsvBtn" type="button">Upload CSV</button>
+                <button class="btn btn-ghost" id="settingsDownloadTemplateCsvBtn" type="button">Download template CSV</button>
+                <button class="btn btn-ghost" id="settingsReloadBtn" type="button">Reload</button>
               </div>
             </div>
             <input id="settingsAnswersCsvInput" type="file" accept=".csv" hidden />
@@ -149,62 +149,62 @@
 
           <section class="tab-panel hidden" data-panel="sessions">
             <div class="card-head">
-              <h2>Editace nahraných session</h2>
-              <div class="muted small">Vyber sessions, které chceš odstranit z databáze.</div>
+              <h2>Edit uploaded sessions</h2>
+              <div class="muted small">Select sessions you want to delete from the database.</div>
               <div class="filter-panel">
                 <div class="filter-grid">
-                  <label class="filter-field"><span>Pohlaví</span><select id="settingsSessionFilterGender"></select></label>
-                  <label class="filter-field"><span>Věk od</span><input id="settingsSessionFilterAgeMin" type="number" inputmode="numeric" min="0" /></label>
-                  <label class="filter-field"><span>Věk do</span><input id="settingsSessionFilterAgeMax" type="number" inputmode="numeric" min="0" /></label>
-                  <label class="filter-field"><span>Povolání</span><select id="settingsSessionFilterOccupation"></select></label>
-                  <label class="filter-field"><span>Národnost</span><select id="settingsSessionFilterNationality"></select></label>
-                  <label class="filter-field"><span>Hledat user/session</span><input id="settingsSessionFilterUserId" type="text" placeholder="např. user_01" /></label>
+                  <label class="filter-field"><span>Gender</span><select id="settingsSessionFilterGender"></select></label>
+                  <label class="filter-field"><span>Min. Age</span><input id="settingsSessionFilterAgeMin" type="number" inputmode="numeric" min="0" /></label>
+                  <label class="filter-field"><span>Max. Age</span><input id="settingsSessionFilterAgeMax" type="number" inputmode="numeric" min="0" /></label>
+                  <label class="filter-field"><span>Occupation</span><select id="settingsSessionFilterOccupation"></select></label>
+                  <label class="filter-field"><span>Nationality</span><select id="settingsSessionFilterNationality"></select></label>
+                  <label class="filter-field"><span>Search user/session</span><input id="settingsSessionFilterUserId" type="text" placeholder="e.g., user_01" /></label>
                 </div>
                 <div class="filter-actions">
-                  <button class="btn btn-ghost" id="settingsSelectAllFilteredBtn" type="button">Zvolit všechny</button>
-                  <button class="btn btn-ghost" id="settingsClearSelectionBtn" type="button">Zrušit výběr</button>
-                  <button class="btn btn-ghost" id="settingsClearFiltersBtn" type="button">Zrušit filtr</button>
+                  <button class="btn btn-ghost" id="settingsSelectAllFilteredBtn" type="button">Select all</button>
+                  <button class="btn btn-ghost" id="settingsClearSelectionBtn" type="button">Clear selection</button>
+                  <button class="btn btn-ghost" id="settingsClearFiltersBtn" type="button">Reset filters</button>
                 </div>
                 <div class="muted small" id="settingsSessionFilterSummary">—</div>
               </div>
             </div>
 
             <div class="list" id="settingsSessionsList">
-              <div class="empty"><div class="empty-title">Zatím žádné sessions</div></div>
+              <div class="empty"><div class="empty-title">No sessions yet</div></div>
             </div>
 
             <div class="card-foot foot-split">
               <div class="muted small" id="settingsSessionStatus">—</div>
               <div class="row" style="gap:8px;">
-                <button class="btn btn-danger" id="settingsDeleteSelectedBtn" type="button">Smazat vybrané</button>
-                <button class="btn btn-danger" id="settingsDeleteAllBtn" type="button">Smazat všechny</button>
+                <button class="btn btn-danger" id="settingsDeleteSelectedBtn" type="button">Delete selected</button>
+                <button class="btn btn-danger" id="settingsDeleteAllBtn" type="button">Delete all</button>
               </div>
             </div>
           </section>
           <section class="tab-panel hidden" data-panel="user-test">
             <div class="card-head">
-              <h2>Nastavení uživatelského testu</h2>
-              <div class="muted small">Uprav název testu, poznámku nebo test trvale smaž.</div>
+              <h2>User experiment settings</h2>
+              <div class="muted small">Edit user experiment name, note or delete it permanently.</div>
             </div>
 
             <div class="filter-panel">
               <label class="filter-field">
-                <span>Název uživatelského testu</span>
-                <input id="settingsUserTestNameInput" type="text" placeholder="např. Test pilotního běhu" />
+                <span>User experiment name</span>
+                <input id="settingsUserTestNameInput" type="text" placeholder="e.g., Pilot run test" />
               </label>
               <label class="filter-field">
-                <span>Poznámka</span>
-                <textarea id="settingsUserTestNoteInput" class="text-area-input" rows="8" placeholder="Poznámka k uživatelskému testu..."></textarea>
+                <span>Note</span>
+                <textarea id="settingsUserTestNoteInput" class="text-area-input" rows="8" placeholder="Note about the user experiment..."></textarea>
               </label>
             </div>
 
             <div class="card-foot foot-split">
               <div class="muted small" id="settingsUserTestStatus">—</div>
-              <button class="btn" id="settingsSaveUserTestBtn" type="button">Uložit změny</button>
+              <button class="btn" id="settingsSaveUserTestBtn" type="button">Save changes</button>
             </div>
 
             <div class="card-foot" style="display:flex; justify-content:flex-end;">
-              <button class="btn btn-danger" id="settingsDeleteUserTestBtn" type="button">Smazat uživatelský test</button>
+              <button class="btn btn-danger" id="settingsDeleteUserTestBtn" type="button">Delete user experiment</button>
             </div>
           </section>
         </section>
@@ -215,16 +215,16 @@
         <div class="modal-card">
           <div class="modal-head">
             <div>
-              <div class="modal-title" id="settingsDeleteConfirmTitle">Potvrzení smazání</div>
+              <div class="modal-title" id="settingsDeleteConfirmTitle">Delete confirmation</div>
             </div>
             <button class="btn btn-ghost" id="settingsDeleteConfirmCloseBtn" type="button">✕</button>
           </div>
           <div class="modal-body">
-            <p id="settingsDeleteConfirmText">Chystáte se smazat vybrané sessions. Tímto dojde k jejich odstranění z databáze. Opravdu si přejete pokračovat?</p>
+            <p id="settingsDeleteConfirmText">You are about to delete the selected sessions. This will remove them from the database. Are you sure you want to continue?</p>
           </div>
           <div class="modal-foot">
-            <button class="btn btn-ghost" id="settingsDeleteConfirmCancelBtn" type="button">Ne, zpět</button>
-            <button class="btn btn-danger" id="settingsDeleteConfirmOkBtn" type="button">Ano, potvrdit</button>
+            <button class="btn btn-ghost" id="settingsDeleteConfirmCancelBtn" type="button">No, go back</button>
+            <button class="btn btn-danger" id="settingsDeleteConfirmOkBtn" type="button">Yes, confirm</button>
           </div>
         </div>
       </div>
@@ -235,13 +235,13 @@
           <div>
             <h1>Sessions</h1>
             <p class="muted">
-              Vyber session (záznam jednoho uživatele). Vpravo se zobrazí metriky a tlačítko pro pokračování na úlohy.
+              Select a session (a single user's activity log). Metrics and a button to proceed to tasks will appear on the right.
             </p>
           </div>
 
           <div class="page-actions">
-            <button class="btn" id="openGroupsBtn" type="button">Skupiny</button>
-            <button class="btn btn-ghost" id="backToTestsBtn" type="button">← Zpět na testy</button>
+            <button class="btn" id="openGroupsBtn" type="button">Groups</button>
+            <button class="btn btn-ghost" id="backToTestsBtn" type="button">← Back to tests</button>
           </div>
         </div>
 
@@ -250,40 +250,40 @@
           <!-- LEFT: SESSIONS -->
           <section class="card">
             <div class="card-head">
-              <h2>Seznam sessions v testu</h2>
-              <div class="muted small">Kliknutí = výběr session (nic dalšího). Tlačítko = pokračování.</div>
+              <h2>Session List in User experiment</h2>
+              <div class="muted small"></div>
               <div class="filter-panel">
                 <div class="filter-grid">
                   <label class="filter-field">
-                    <span>Pohlaví</span>
+                    <span>Gender</span>
                     <select id="sessionFilterGender"></select>
                   </label>
                   <label class="filter-field">
-                    <span>Věk od</span>
-                    <input id="sessionFilterAgeMin" type="number" inputmode="numeric" min="0" placeholder="např. 18" />
+                    <span>Min. Age</span>
+                    <input id="sessionFilterAgeMin" type="number" inputmode="numeric" min="0" placeholder="e.g. 18" />
                   </label>
                   <label class="filter-field">
-                    <span>Věk do</span>
-                    <input id="sessionFilterAgeMax" type="number" inputmode="numeric" min="0" placeholder="např. 65" />
+                    <span>Max. Age</span>
+                    <input id="sessionFilterAgeMax" type="number" inputmode="numeric" min="0" placeholder="e.g. 65" />
                   </label>
                   <label class="filter-field">
-                    <span>Povolání</span>
+                    <span>Occupation</span>
                     <select id="sessionFilterOccupation"></select>
                   </label>
                   <label class="filter-field">
-                    <span>Národnost</span>
+                    <span>Nationality</span>
                     <select id="sessionFilterNationality"></select>
                   </label>
                   <label class="filter-field">
-                    <span>Vyhledat user ID</span>
-                    <input id="sessionFilterUserId" type="search" placeholder="např. 12345" />
+                    <span>Search User ID</span>
+                    <input id="sessionFilterUserId" type="search" placeholder="e.g. 12345" />
                   </label>
                 </div>
                 <div class="filter-actions">
-                  <button class="btn" id="createGroupBtn" type="button">Vytvořit skupinu z vybraných</button>
-                  <button class="btn btn-ghost" id="selectFilteredSessionsBtn" type="button">Zvolit všechny</button>
-                  <button class="btn btn-ghost" id="clearSessionSelectionBtn" type="button">Zrušit výběr</button>
-                  <button class="btn btn-ghost" id="clearSessionFiltersBtn" type="button">Zrušit filtr</button>
+                  <button class="btn" id="createGroupBtn" type="button">Create group from selected</button>
+                  <button class="btn btn-ghost" id="selectFilteredSessionsBtn" type="button">Select all</button>
+                  <button class="btn btn-ghost" id="clearSessionSelectionBtn" type="button">Clear selection</button>
+                  <button class="btn btn-ghost" id="clearSessionFiltersBtn" type="button">Clear filters</button>
                   <div class="muted small" id="sessionFilterSummary"></div>
                 </div>
               </div>
@@ -291,8 +291,8 @@
 
             <div class="list" id="sessionsList">
               <div class="empty">
-                <div class="empty-title">Žádná session</div>
-                <div class="muted small">Nahraj CSV na nástěnce, potom se sem sessions doplní.</div>
+                <div class="empty-title">No sessions</div>
+                <div class="muted small">Upload CSV on Dashboard, then data will be viewed here.</div>
               </div>
             </div>
           </section>
@@ -300,25 +300,25 @@
           <!-- RIGHT: SESSION METRICS -->
           <section class="card">
             <div class="card-head">
-              <h2>Metriky session</h2>
-              <div class="muted small">UserID je vždy zobrazené.</div>
+              <h2>Session Metrics</h2>
+              <div class="muted small"></div>
             </div>
 
             <div class="filter-field" id="sessionMetricsField">
-              <span>Zobrazené metriky</span>
+              <span>Displayed Metrics</span>
               <div id="sessionMetricsPicker" class="chip-picker"></div>
             </div>
 
             <div class="metrics" id="sessionMetrics">
               <div class="empty">
-                <div class="empty-title">Vyber session</div>
-                <div class="muted small">Klikni vlevo na session, aby se zde zobrazily její metriky.</div>
+                <div class="empty-title">Choose a session</div>
+                <div class="muted small">Click on a session on the left to view its metrics here.</div>
               </div>
             </div>
 
             <div class="card-foot foot-split">
-              <div class="muted small">Pokračuj na seznam úloh v této session.</div>
-              <button class="btn" id="openSessionBtn" type="button" disabled>Otevřít session</button>
+              <div class="muted small">Continue to the task list in this session.</div>
+              <button class="btn" id="openSessionBtn" type="button" disabled>Open session</button>
             </div>
           </section>
         </div>
@@ -327,30 +327,26 @@
       <section class="page hidden" id="view-groups">
         <div class="page-head">
           <div>
-            <h1>Skupiny</h1>
-            <p class="muted">Správa uživatelských skupin a příprava dat pro budoucí vizualizace.</p>
+            <h1>Groups</h1>
+            <p class="muted">Management of session groups.</p>
           </div>
           <div class="page-actions">
-            <button class="btn" id="editGroupBtn" type="button" disabled>Editace skupiny</button>
-            <button class="btn btn-ghost" id="backFromGroupsBtn" type="button">← Zpět</button>
+            <button class="btn" id="editGroupBtn" type="button" disabled>Edit group</button>
+            <button class="btn btn-ghost" id="backFromGroupsBtn" type="button">← Back</button>
           </div>
         </div>
 
         <div class="layout-2">
           <section class="card">
             <div class="card-head">
-              <h2>Vytvořené skupiny</h2>
-              <div class="muted small">Vyber skupinu v rámci aktuálního testu.</div>
-              <label class="filter-field">
-                <span>Vyhledat skupinu</span>
-                <input id="groupsSearchInput" type="search" placeholder="např. experiment A" />
-              </label>
+              <h2>Created Groups</h2>
+              <div class="muted small">Select a group within the current test.</div>
               <div class="row" style="align-items:end; gap:10px;">
                 <label class="filter-field" style="flex:1; margin:0;">
-                  <span>Vyhledat skupinu</span>
-                  <input id="groupsSearchInput" type="search" placeholder="např. experiment A" />
+                  <span>Search Group</span>
+                  <input id="groupsSearchInput" type="search" placeholder="e.g., experiment A" />
                 </label>
-                <button class="btn" id="openGroupsCompareBtn" type="button">Srovnání skupin</button>
+                <button class="btn" id="openGroupsCompareBtn" type="button">Compare groups</button>
               </div>
             </div>
             <div class="list" id="groupsList"></div>
@@ -358,21 +354,21 @@
 
           <section class="card">
             <div class="card-head">
-              <h2>Vizualizace (placeholdery)</h2>
-              <div class="muted small">Na tento panel navážeme další část vývoje.</div>
+              <h2>Basic metrics</h2>
+              <div class="muted small"></div>
             </div>
             <div class="stack">
               <div class="placeholder-box hidden" id="groupUsersPanel">
                 <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:10px;">
-                  <button class="btn btn-ghost" id="toggleGroupUsersBtn" type="button">Uživatelé ve skupině</button>
+                  <button class="btn btn-ghost" id="toggleGroupUsersBtn" type="button">Users in group</button>
                 </div>
                 <div class="list" id="groupUsersList"></div>
               </div>
               <div class="placeholder-box hidden" id="groupTimeStatsPanel"></div>
               <div class="placeholder-box hidden" id="groupCountsStatsPanel"></div>
               <div class="placeholder-box hidden" id="groupAnswersPanel">
-                <div class="title">Vyhodnocení správnosti odpovědí</div>
-                 <div class="muted small">Načítání textových odpovědí a wordcloudu…</div>
+                <div class="title">Evaluation of answer correctness</div>
+                 <div class="muted small">Loading text responses and word cloud…</div>
               </div>
               <div class="placeholder-box hidden" id="groupSocioPanel"></div>
             </div>
@@ -383,60 +379,61 @@
       <section class="page hidden" id="view-group-edit">
         <div class="page-head">
           <div>
-            <h1>Editace skupiny</h1>
-            <p class="muted" id="groupEditPageSubtitle">Ruční filtrace uživatelů ve vybrané skupině.</p>
+            <h1>Edit group</h1>
+            <p class="muted" id="groupEditPageSubtitle">Manual filtering of users in the selected group.</p>
           </div>
           <div class="page-actions">
-            <button class="btn btn-strong" id="groupEditExportCsvBtn" type="button">⬇ Export CSV skupiny</button>
-            <button class="btn btn-ghost" id="backFromGroupEditBtn" type="button">← Zpět na skupiny</button>
+            <button class="btn btn-strong" id="groupEditExportCsvBtn" type="button">⬇ Export group CSV</button>
+            <button class="btn btn-ghost" id="backFromGroupEditBtn" type="button">← Back to groups</button>
           </div>
         </div>
 
-        <div class="tab-row" id="groupEditTabs" role="tablist" aria-label="Editace skupiny" style="margin-bottom:12px;">
-          <button class="tab-btn is-active" type="button" role="tab" data-tab="sessions">Editace sessions</button>
-          <button class="tab-btn" type="button" role="tab" data-tab="settings">Nastavení skupiny</button>
+        <div class="tab-row" id="groupEditTabs" role="tablist" aria-label="Edit group" style="margin-bottom:12px;">
+          <button class="tab-btn is-active" type="button" role="tab" data-tab="sessions">Edit sessions</button>
+          <button class="tab-btn" type="button" role="tab" data-tab="settings">Group settings</button>
         </div>
 
         <section data-group-edit-panel="sessions">
           <div class="layout-2">
             <section class="card">
               <div class="card-head">
-                <h2>Sessions ve skupině</h2>
-                <div class="muted small">Zaškrtávátko = výběr pro novou skupinu · ! = kandidát na odebrání.</div>
+                <h2>Sessions in group</h2>
+                <div class="muted small">Checkbox = selection for new group</div>
+                <div class="muted small">! = candidate for removal.</div>
               </div>
               <div class="filter-panel">
                 <label class="filter-field">
-                  <span>Vyhledat podle user/session</span>
-                  <input id="groupEditSearchInput" type="search" placeholder="např. 12345 nebo session_01" />
+                  <span>Search by user/session</span>
+                  <input id="groupEditSearchInput" type="search" placeholder="e.g., 12345 or session_01" />
                 </label>
                 <div class="filter-grid">
-                  <label class="filter-field"><span>Pohlaví</span><select id="groupEditFilterGender"></select></label>
-                  <label class="filter-field"><span>Věk od</span><input id="groupEditFilterAgeMin" type="number" min="0" /></label>
-                  <label class="filter-field"><span>Věk do</span><input id="groupEditFilterAgeMax" type="number" min="0" /></label>
-                  <label class="filter-field"><span>Povolání</span><select id="groupEditFilterOccupation"></select></label>
-                  <label class="filter-field"><span>Národnost</span><select id="groupEditFilterNationality"></select></label>
+                  <label class="filter-field"><span>Gender</span><select id="groupEditFilterGender"></select></label>
+                  <label class="filter-field"><span>Min. Age</span><input id="groupEditFilterAgeMin" type="number" min="0" /></label>
+                  <label class="filter-field"><span>Max. Age</span><input id="groupEditFilterAgeMax" type="number" min="0" /></label>
+                  <label class="filter-field"><span>Occupation</span><select id="groupEditFilterOccupation"></select></label>
+                  <label class="filter-field"><span>Nationality</span><select id="groupEditFilterNationality"></select></label>
                 </div>
                 <div class="filter-actions">
-                  <label class="row" style="gap:6px;"><input id="groupEditOnlyFlagged" type="checkbox" />Jen označené !</label>
-                  <button class="btn btn-ghost" id="groupEditSelectAllBtn" type="button">Zvolit všechny</button>
-                  <button class="btn btn-ghost" id="groupEditClearFiltersBtn" type="button">Zrušit filtr</button>
+                  <label class="row" style="gap:6px;"><input id="groupEditOnlyFlagged" type="checkbox" />Only flagged !</label>
+                  <button class="btn btn-ghost" id="groupEditSelectAllBtn" type="button">Select all</button>
+                  <button class="btn btn-ghost" id="groupEditClearFiltersBtn" type="button">Clear filter</button>
                   <div class="muted small" id="groupEditSummary"></div>
                 </div>
               </div>
               <div class="list" id="groupEditSessionsList"></div>
               <div class="card-foot foot-split">
-                <button class="btn" id="groupEditCreateGroupFromSelectedBtn" type="button">Vytvořit skupinu z vybraných</button>
-                <button class="btn btn-danger" id="groupEditDeleteFlaggedBtn" type="button">Odebrat ! ze skupiny</button>
+                <button class="btn" id="groupEditCreateGroupFromSelectedBtn" type="button">Create group from selected</button>
+                <button class="btn btn-danger" id="groupEditDeleteFlaggedBtn" type="button">Remove ! from group</button>
               </div>
             </section>
 
             <section class="card">
               <div class="card-head">
-                <h2>Metriky session</h2>
-                <div class="muted small">UserID je vždy zobrazené.</div>
+                <h2>Session metrics</h2>
+                <div class="muted small"></div>
               </div>
               <div class="filter-field" id="groupEditMetricsField">
-                <span>Zobrazené metriky</span>
+                <span>Displayed metrics</span>
                 <div id="groupEditMetricsPicker" class="chip-picker"></div>
               </div>
               <div class="metrics" id="groupEditSessionMetrics"></div>
@@ -446,17 +443,17 @@
 
         <section class="hidden" data-group-edit-panel="settings">
           <section class="card">
-            <div class="card-head"><h2>Nastavení skupiny</h2></div>
+            <div class="card-head"><h2>Group settings</h2></div>
             <div class="filter-panel">
-              <label class="filter-field"><span>Název skupiny</span><input id="groupEditNameInput" type="text" /></label>
-              <label class="filter-field"><span>Poznámka</span><textarea id="groupEditNoteInput" class="text-area-input" rows="8"></textarea></label>
-              <div style="display:flex; justify-content:flex-end;"><button class="btn btn-danger" id="deleteGroupBtn" type="button">Smazat skupinu</button></div>
+              <label class="filter-field"><span>Group name</span><input id="groupEditNameInput" type="text" /></label>
+              <label class="filter-field"><span>Note</span><textarea id="groupEditNoteInput" class="text-area-input" rows="8"></textarea></label>
+              <div style="display:flex; justify-content:flex-end;"><button class="btn btn-danger" id="deleteGroupBtn" type="button">Delete group</button></div>
             </div>
           </section>
         </section>
         <div class="row" style="justify-content:space-between; margin-top:10px;">
           <div class="muted small" id="groupEditStatus"></div>
-          <button class="btn" id="saveGroupEditBtn" type="button">Uložit změny</button>
+          <button class="btn" id="saveGroupEditBtn" type="button">Save changes</button>
         </div>
       </section>
 
@@ -464,14 +461,13 @@
       <section class="page hidden" id="view-group">
         <div class="page-head">
           <div>
-            <h1>Úlohy v session</h1>
+            <h1>Tasks in session</h1>
             <p class="muted">
-              V této session je více úloh (sloupec <b>task</b>). Klikni na úlohu a zobraz metriky v pop-up okně.
             </p>
           </div>
 
           <div class="page-actions">
-            <button class="btn btn-ghost" id="backToSessionsBtn" type="button">← Zpět na sessions</button>
+            <button class="btn btn-ghost" id="backToSessionsBtn" type="button">← Back to sessions</button>
           </div>
         </div>
 
@@ -480,14 +476,14 @@
           <!-- LEFT: TASKS -->
           <section class="card">
             <div class="card-head">
-              <h2>Seznam úloh</h2>
-              <div class="muted small">Kliknutí na úlohu otevře metriky (pop-up).</div>
+              <h2>Tasks</h2>
+              <div class="muted small">Click on a task to open its metrics (pop-up).</div>
             </div>
 
             <div class="list" id="tasksList">
               <div class="empty">
-                <div class="empty-title">Vyber nejdřív session</div>
-                <div class="muted small">Úlohy se načtou až po výběru session v předchozím kroku.</div>
+                <div class="empty-title">Begin by choosing a session</div>
+                <div class="muted small">Tasks will be loaded once you select a session in the previous step.</div>
               </div>
             </div>
           </section>
@@ -495,26 +491,26 @@
           <!-- RIGHT: PLACEHOLDERS FOR FUTURE -->
           <section class="card">
             <div class="card-head">
-              <h2>Detail (později)</h2>
-              <div class="muted small">Sem později přijde individuální pohled: mapa, soc-dem info…</div>
+              <h2>Details</h2>
+              <div class="muted small"></div>
             </div>
 
             <div class="stack">
               <!-- ADDITIVE: button to open timeline -->
               <div class="placeholder-box">
                 <div class="row" style="justify-content:space-between; align-items:center; gap:12px;">
-                  <div class="muted small">Timeline eventů pro celou session.</div>
-                  <button class="btn" id="openTimelineBtn" type="button">Časová osa eventů</button>
+                  <div class="muted small">Timeline of events for the whole session</div>
+                  <button class="btn" id="openTimelineBtn" type="button">Timeline of events</button>
                 </div>
               </div>
 
               <div class="placeholder-box">
                 <div class="row" style="justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
-                  <div class="muted small">Mapa (trajektorie + viewpointy)</div>
-                  <button class="btn" id="openMapModalBtn" type="button">Otevřít mapu</button>
+                  <div class="muted small">Map (trajectory + viewports)</div>
+                  <button class="btn" id="openMapModalBtn" type="button">Open map</button>
                 </div>
               </div>
-              <div class="placeholder-box">Soc-dem info</div>
+              <div class="placeholder-box">User's device information</div>
             </div>
           </section>
         </div>
@@ -529,23 +525,23 @@
       <div class="modal-card">
         <div class="modal-head">
           <div>
-            <div class="modal-title" id="taskModalTitle">Metriky úlohy</div>
+            <div class="modal-title" id="taskModalTitle">Task details</div>
             <div class="muted small" id="taskModalSubtitle">—</div>
           </div>
-          <button class="icon-btn" id="closeTaskModalBtn" type="button" aria-label="Zavřít">✕</button>
+          <button class="icon-btn" id="closeTaskModalBtn" type="button" aria-label="Close">✕</button>
         </div>
 
         <div class="modal-body">
-          <div class="tab-row" id="taskModalTabs" role="tablist" aria-label="Detail úlohy">
-            <button class="tab-btn is-active" type="button" role="tab" data-tab="metrics" aria-selected="true">Metriky</button>
-            <button class="tab-btn" type="button" role="tab" data-tab="map" aria-selected="false">Mapa</button>
+          <div class="tab-row" id="taskModalTabs" role="tablist" aria-label="Task details">
+            <button class="tab-btn is-active" type="button" role="tab" data-tab="metrics" aria-selected="true">Metrics</button>
+            <button class="tab-btn" type="button" role="tab" data-tab="map" aria-selected="false">Map</button>
           </div>
 
           <section class="tab-panel" data-panel="metrics">
             <div class="metrics" id="taskModalMetrics">
               <div class="empty">
-                <div class="empty-title">Zatím nic</div>
-                <div class="muted small">Po kliknutí na úlohu se zde zobrazí její metriky.</div>
+                <div class="empty-title">Nothing yet</div>
+                <div class="muted small">Once you click on a task, its metrics will be displayed here.</div>
               </div>
             </div>
           </section>
@@ -553,78 +549,78 @@
           <section class="tab-panel hidden" data-panel="map">
             <div class="map-layout">
               <section class="map-sidebar">
-                <div class="map-panel-title">Zobrazení vrstev</div>
+                <div class="map-panel-title">Layers</div>
 
                 <div class="map-option-grid">
                   <label class="map-option-row" for="taskMapShowPoints">
                     <input id="taskMapShowPoints" type="checkbox" checked />
-                    <span>Body (popupopen)</span>
+                    <span>Points (pop-ups)</span>
                   </label>
                   <label class="map-option-row" for="taskMapShowTrajectory">
                     <input id="taskMapShowTrajectory" type="checkbox" checked />
-                    <span>Trajektorie (moveend)</span>
+                    <span>Trajectory</span>
                   </label>
                   <label class="map-option-row" for="taskMapShowEndpoints">
                     <input id="taskMapShowEndpoints" type="checkbox" checked />
-                    <span>Začátek / konec</span>
+                    <span>Start / End</span>
                   </label>
                   <label class="map-option-row" for="taskMapShowViewportRects">
                     <input id="taskMapShowViewportRects" type="checkbox" />
-                    <span>Zobrazovat viewport obdélníky</span>
+                    <span>Display viewports</span>
                   </label>
                   <label class="map-option-row" for="taskMapShowAllViewportRects">
                     <input id="taskMapShowAllViewportRects" type="checkbox" />
-                    <span>Zobrazit všechny viewport obdélníky</span>
+                    <span>Display all viewports</span>
                   </label>
                 </div>
 
-                <div class="map-panel-title" style="margin-top:10px;">Barvy</div>
+                <div class="map-panel-title" style="margin-top:10px;">Colors</div>
                 <div class="map-option-grid">
                   <label class="filter-field" for="taskMapPointsColorInput">
-                    <span>Body</span>
+                    <span>Points</span>
                     <input id="taskMapPointsColorInput" type="color" value="#4cc9f0" />
                   </label>
                   <label class="filter-field" for="taskMapLineColorInput">
-                    <span>Trajektorie</span>
+                    <span>Trajectory</span>
                     <input id="taskMapLineColorInput" type="color" value="#f72585" />
                   </label>
                 </div>
 
-                <div class="map-panel-title" style="margin-top:8px;">Legenda</div>
+                <div class="map-panel-title" style="margin-top:8px;">Map key</div>
                 <div class="map-legend" id="taskMapLegend">
                   <div class="map-legend-row">
                     <span class="map-legend-swatch" id="taskMapLegendPointSwatch"></span>
-                    <span>Body (popupopen)</span>
+                    <span>Points (pop-ups)</span>
                   </div>
                   <div class="map-legend-row">
                     <span class="map-legend-line" id="taskMapLegendLineSwatch"></span>
-                    <span>Trajektorie (moveend)</span>
+                    <span>Trajectory</span>
                   </div>
                   <div class="map-legend-row">
                     <span class="map-legend-swatch map-legend-swatch-endpoint" id="taskMapLegendEndpointSwatch"></span>
-                    <span>Začátek / konec</span>
+                    <span>Start / End</span>
                   </div>
                   <div class="map-legend-row">
                     <span class="map-legend-swatch" id="taskMapLegendViewportSwatch" style="background:#ff7800;"></span>
-                    <span>Viewport obdélníky</span>
+                    <span>Viewports</span>
                   </div>
                 </div>
 
                 <div class="empty" id="taskMapDataPlaceholder">
-                  <div class="empty-title">Připraveno</div>
-                  <div class="muted small">Po otevření úlohy načteme mapová data.</div>
+                  <div class="empty-title">Ready</div>
+                  <div class="muted small"></div>
                 </div>
               </section>
 
               <section class="map-canvas-wrap">
-                <div id="taskLeafletMap" class="leaflet-map-canvas" aria-label="Interaktivní mapa úlohy"></div>
+                <div id="taskLeafletMap" class="leaflet-map-canvas" aria-label="Interactive task map"></div>
               </section>
             </div>
           </section>
         </div>
 
         <div class="modal-foot">
-          <button class="btn btn-ghost" id="closeTaskModalBtn2" type="button">Zavřít</button>
+          <button class="btn btn-ghost" id="closeTaskModalBtn2" type="button">Close</button>
         </div>
       </div>
     </div>
@@ -633,32 +629,31 @@
     <div class="modal hidden" id="timelineModal" role="dialog" aria-modal="true" aria-labelledby="timelineModalTitle">
       <div class="modal-backdrop" id="timelineModalBackdrop"></div>
 
-      <!-- wide modal-card using inline style (no CSS changes) -->
       <div class="modal-card" style="width:min(1200px, 94vw);">
         <div class="modal-head">
           <div>
-            <div class="modal-title" id="timelineModalTitle">Časová osa eventů</div>
+            <div class="modal-title" id="timelineModalTitle">Timeline of events</div>
             <div class="muted small" id="timelineModalSubtitle">—</div>
           </div>
-          <button class="icon-btn" id="closeTimelineBtn" type="button" aria-label="Zavřít">✕</button>
+          <button class="icon-btn" id="closeTimelineBtn" type="button" aria-label="Close">✕</button>
         </div>
 
         <div class="modal-body">
           <div class="muted small" style="margin-bottom:10px;">
-            Barevné segmenty = intervaly (MOVE/ZOOM), svislé čárky = bodové eventy. Hover ukáže detail.
+            Colored segments = intervals (MOVE/ZOOM), vertical lines = point events. Hover shows details.
           </div>
 
           <div id="timelineContent">
             <div class="empty">
-              <div class="empty-title">Zatím nic</div>
-              <div class="muted small">Otevři timeline nad vybranou session.</div>
+              <div class="empty-title">Nothing yet</div>
+              <div class="muted small"></div>
             </div>
           </div>
         </div>
 
         <div class="modal-foot">
           <button class="btn" id="exportTimelineCsvBtn" type="button">Export CSV (GazePlotter)</button>
-          <button class="btn btn-ghost" id="closeTimelineBtn2" type="button">Zavřít</button>
+          <button class="btn btn-ghost" id="closeTimelineBtn2" type="button">Close</button>
         </div>
       </div>
     </div>
@@ -669,22 +664,22 @@
       <div class="modal-card">
         <div class="modal-head">
           <div>
-            <div class="modal-title" id="uploadTestTitle">Vyber test pro CSV</div>
-            <div class="muted small">CSV se nahraje pouze do zvoleného testu.</div>
+            <div class="modal-title" id="uploadTestTitle">Choose a user experiment</div>
+            <div class="muted small">CSV will be uploaded to the selected user experiment.</div>
           </div>
-          <button class="icon-btn" id="closeUploadTestBtn" type="button" aria-label="Zavřít">✕</button>
+          <button class="icon-btn" id="closeUploadTestBtn" type="button" aria-label="Close">✕</button>
         </div>
 
         <div class="modal-body">
           <label class="filter-field" style="gap:6px;">
-            <span>Test</span>
+            <span>User experiment</span>
             <select id="uploadTestSelect"></select>
           </label>
         </div>
 
         <div class="modal-foot">
-          <button class="btn btn-ghost" id="cancelUploadTestBtn" type="button">Zrušit</button>
-          <button class="btn" id="confirmUploadTestBtn" type="button">Pokračovat</button>
+          <button class="btn btn-ghost" id="cancelUploadTestBtn" type="button">Cancel</button>
+          <button class="btn" id="confirmUploadTestBtn" type="button">Continue</button>
         </div>
       </div>
     </div>
@@ -695,85 +690,85 @@
     <div class="modal-card map-modal-card">
       <div class="modal-head">
         <div>
-          <div class="modal-title" id="sessionMapModalTitle">Mapa session (Leaflet)</div>
-          <div class="muted small" id="sessionMapModalSubtitle">Připraveno pro data ve WGS84.</div>
+          <div class="modal-title" id="sessionMapModalTitle">Session Map</div>
+          <div class="muted small" id="sessionMapModalSubtitle"></div>
         </div>
-        <button class="icon-btn" id="closeSessionMapBtn" type="button" aria-label="Zavřít">✕</button>
+        <button class="icon-btn" id="closeSessionMapBtn" type="button" aria-label="Close">✕</button>
       </div>
 
       <div class="modal-body map-modal-body">
         <div class="map-layout">
           <section class="map-sidebar">
-            <div class="map-panel-title">Zobrazení vrstev</div>
+            <div class="map-panel-title">Layers</div>
 
             <div class="map-option-grid">
               <label class="map-option-row" for="mapShowPoints">
                 <input id="mapShowPoints" type="checkbox" checked />
-                <span>Zobrazit body</span>
+                <span>Points (pop-ups)</span>
               </label>
               <label class="map-option-row" for="mapShowTrajectory">
                 <input id="mapShowTrajectory" type="checkbox" checked />
-                <span>Zobrazit linii trajektorie</span>
+                <span>Trajectory</span>
               </label>
               <label class="map-option-row" for="mapShowEndpoints">
                 <input id="mapShowEndpoints" type="checkbox" checked />
-                <span>Začátek a konec pohybu</span>
+                <span>Start / End</span>
               </label>
               <label class="map-option-row" for="mapShowViewportRects">
                 <input id="mapShowViewportRects" type="checkbox" />
-                <span>Zobrazovat viewport obdélníky</span>
+                <span>Display viewports</span>
               </label>
               <label class="map-option-row" for="mapShowAllViewportRects">
                 <input id="mapShowAllViewportRects" type="checkbox" />
-                <span>Zobrazit všechny viewport obdélníky</span>
+                <span>Display all viewports</span>
               </label>
             </div>
 
             <div class="map-option-grid">
               <label class="filter-field" for="mapPointsColorInput">
-                <span>Barva bodů</span>
+                <span>Points color</span>
                 <input id="mapPointsColorInput" type="color" value="#4cc9f0" />
               </label>
               <label class="filter-field" for="mapLineColorInput">
-                <span>Barva linie</span>
+                <span>Trajectory color</span>
                 <input id="mapLineColorInput" type="color" value="#f72585" />
               </label>
             </div>
 
-            <div class="map-panel-title" style="margin-top:8px;">Legenda (příprava)</div>
+            <div class="map-panel-title" style="margin-top:8px;">Map key</div>
             <div class="map-legend" id="sessionMapLegend">
               <div class="map-legend-row">
                 <span class="map-legend-swatch" id="mapLegendPointSwatch"></span>
-                <span>Body (WGS84) – připraveno na budoucí data</span>
+                <span>Points (pop-ups)</span>
               </div>
               <div class="map-legend-row">
                 <span class="map-legend-line" id="mapLegendLineSwatch"></span>
-                <span>Trajektorie (LineString) – připraveno na budoucí data</span>
+                <span>Trajectory</span>
               </div>
               <div class="map-legend-row">
                 <span class="map-legend-swatch map-legend-swatch-endpoint" id="mapLegendEndpointSwatch"></span>
-                <span>Začátek a konec pohybu</span>
+                <span>Start / End</span>
               </div>
               <div class="map-legend-row">
                 <span class="map-legend-swatch" id="mapLegendViewportSwatch" style="background:#ff7800;"></span>
-                <span>Viewport obdélníky</span>
+                <span>Viewports</span>
               </div>
             </div>
 
             <div class="empty" id="mapDataPlaceholder">
-              <div class="empty-title">Zatím bez dat</div>
-              <div class="muted small">Výpočet a naplnění bodů/linie doplníme v další iteraci.</div>
+              <div class="empty-title">No data available</div>
+              <div class="muted small"></div>
             </div>
           </section>
 
           <section class="map-canvas-wrap">
-            <div id="sessionLeafletMap" class="leaflet-map-canvas" aria-label="Interaktivní mapa session"></div>
+            <div id="sessionLeafletMap" class="leaflet-map-canvas" aria-label="Interactive session map"></div>
           </section>
         </div>
       </div>
 
       <div class="modal-foot">
-        <button class="btn btn-ghost" id="closeSessionMapBtn2" type="button">Zavřít</button>
+        <button class="btn btn-ghost" id="closeSessionMapBtn2" type="button">Close</button>
       </div>
     </div>
   </div>
@@ -783,21 +778,21 @@
     <div class="modal-card">
       <div class="modal-head">
         <div>
-          <div class="modal-title" id="groupCreateTitle">Vytvořit skupinu</div>
-          <div class="muted small">Zadej název skupiny pro vybrané sessions.</div>
+          <div class="modal-title" id="groupCreateTitle">Create group</div>
+          <div class="muted small">Enter group name.</div>
         </div>
-        <button class="icon-btn" id="closeGroupCreateBtn" type="button" aria-label="Zavřít">✕</button>
+        <button class="icon-btn" id="closeGroupCreateBtn" type="button" aria-label="Close">✕</button>
       </div>
       <div class="modal-body">
         <label class="filter-field">
-          <span>Název skupiny</span>
-          <input id="groupNameInput" type="text" placeholder="např. Pilotní skupina A" />
+          <span>Group name</span>
+          <input id="groupNameInput" type="text" placeholder="e.g., Pilot group A" />
         </label>
         <div class="muted small" id="groupCreateStatus" style="margin-top:8px;"></div>
       </div>
       <div class="modal-foot">
-        <button class="btn btn-ghost" id="cancelGroupCreateBtn" type="button">Zrušit</button>
-        <button class="btn" id="saveGroupBtn" type="button">Uložit</button>
+        <button class="btn btn-ghost" id="cancelGroupCreateBtn" type="button">Cancel</button>
+        <button class="btn" id="saveGroupBtn" type="button">Save</button>
       </div>
     </div>
   </div>
@@ -807,21 +802,21 @@
     <div class="modal-card">
       <div class="modal-head">
         <div>
-          <div class="modal-title" id="groupSplitTitle">Vytvořit novou skupinu</div>
-          <div class="muted small" id="groupSplitSubtitle">Z vybraných sessions v editaci skupiny.</div>
+          <div class="modal-title" id="groupSplitTitle">Create new group</div>
+          <div class="muted small" id="groupSplitSubtitle">From selected sessions in group editing.</div>
         </div>
-        <button class="icon-btn" id="closeGroupSplitBtn" type="button" aria-label="Zavřít">✕</button>
+        <button class="icon-btn" id="closeGroupSplitBtn" type="button" aria-label="Close">✕</button>
       </div>
       <div class="modal-body">
         <label class="filter-field">
-          <span>Název skupiny</span>
-          <input id="groupSplitNameInput" type="text" placeholder="např. Bez outliers" />
+          <span>Group name</span>
+          <input id="groupSplitNameInput" type="text" placeholder="e.g., Group B" />
         </label>
         <div class="muted small" id="groupSplitStatus" style="margin-top:8px;"></div>
       </div>
       <div class="modal-foot">
-        <button class="btn btn-ghost" id="cancelGroupSplitBtn" type="button">Zrušit</button>
-        <button class="btn" id="confirmGroupSplitBtn" type="button">Vytvořit</button>
+        <button class="btn btn-ghost" id="cancelGroupSplitBtn" type="button">Cancel</button>
+        <button class="btn" id="confirmGroupSplitBtn" type="button">Create</button>
       </div>
     </div>
   </div>
@@ -832,18 +827,18 @@
     <div class="modal-card compare-modal-card" style="width:min(1180px, 96vw);">
       <div class="modal-head">
         <div>
-          <div class="modal-title" id="groupsCompareTitle">Srovnání skupin</div>
-          <div class="muted small" id="groupsCompareSubtitle">Porovnání vybraných skupin.</div>
+          <div class="modal-title" id="groupsCompareTitle">Groups comparison</div>
+          <div class="muted small" id="groupsCompareSubtitle">Comparison of selected groups.</div>
         </div>
-        <button class="icon-btn" id="closeGroupsCompareBtn" type="button" aria-label="Zavřít">✕</button>
+        <button class="icon-btn" id="closeGroupsCompareBtn" type="button" aria-label="Close">✕</button>
       </div>
       <div class="modal-body">
-        <div class="tab-row" id="groupsCompareTabs" role="tablist" aria-label="Srovnání skupin">
-          <button class="tab-btn is-active" type="button" role="tab" data-tab="summary">Tabulka</button>
-          <button class="tab-btn" type="button" role="tab" data-tab="chart">Správnost odpovědí</button>
+        <div class="tab-row" id="groupsCompareTabs" role="tablist" aria-label="Groups comparison">
+          <button class="tab-btn is-active" type="button" role="tab" data-tab="summary">Table</button>
+          <button class="tab-btn" type="button" role="tab" data-tab="chart">Answer correctness</button>
           <button class="tab-btn" type="button" role="tab" data-tab="boxplot">Box plot</button>
-          <button class="tab-btn" type="button" role="tab" data-tab="task">Srovnání na úrovni úloh</button>
-          <button class="tab-btn" type="button" role="tab" data-tab="answers">Odpovědi</button>
+          <button class="tab-btn" type="button" role="tab" data-tab="task">Comparison at task level</button>
+          <button class="tab-btn" type="button" role="tab" data-tab="answers">Answers</button>
         </div>
 
         <section class="tab-panel" data-panel="summary">
@@ -863,8 +858,8 @@
             <div>
               <div class="row" style="gap:8px; align-items:end; margin-bottom:8px;">
                 <label class="filter-field" style="flex:1; margin:0;">
-                  <span>Vyhledat úlohu</span>
-                  <input id="groupTaskSearchInput" type="search" placeholder="např. task_1" />
+                  <span>Search task</span>
+                  <input id="groupTaskSearchInput" type="search" placeholder="e.g., task_1" />
                 </label>
               </div>
               <div class="list compact-task-list" id="groupTaskList"></div>
@@ -877,17 +872,17 @@
         </section>
       </div>
       <div class="modal-foot">
-        <button class="btn btn-ghost" id="closeGroupsCompareBtn2" type="button">Zavřít</button>
+        <button class="btn btn-ghost" id="closeGroupsCompareBtn2" type="button">Close</button>
       </div>
     </div>
   </div>
 
   <footer class="app-footer" aria-label="Patička aplikace">
     <div class="app-footer-content">
-      <p>Appka zatím bez názvu, verze 0 (březen 2026)</p>
-      <p>Autor: Vítězslav Huk (pod vedením Lukáše Hermana)</p>
-      <p>Geografický ústav Masarykovy univerzity</p>
-      <img src="/static/geografust-lg-cze-white.png" alt="Logo Geografického ústavu Masarykovy univerzity" class="app-footer-logo" />
+      <p>App without a name (for now), v. 0 (March 2026)</p>
+      <p>Coded & Designed by Vítězslav Huk, idea by Lukáš Herman</p>
+      <p>Department of Geography, Masaryk University</p>
+      <img src="/static/geografust-lg-cze-white.png" alt="Dep. of Geography Logo" class="app-footer-logo" />
     </div>
   </footer>
 
