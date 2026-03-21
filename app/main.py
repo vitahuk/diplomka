@@ -271,6 +271,18 @@ def _build_timeline_items_from_events_df(df: pd.DataFrame) -> List[Dict[str, Any
 
     return items
 
+def _build_task_start_offsets(events: List[Dict[str, Any]]) -> Dict[str, int]:
+    task_offsets: Dict[str, int] = {}
+
+    for event in events:
+        task_raw = event.get("task")
+        task_id = str(task_raw).strip() if task_raw is not None else ""
+        if not task_id or task_id in task_offsets:
+            continue
+        task_offsets[task_id] = int(event.get("timestamp", 0))
+
+    return task_offsets
+
 def _read_csv_flexible(path: Path) -> pd.DataFrame:
     """
     Tries common delimiters (comma/tab/auto) to support slightly different CSV exports.
@@ -886,6 +898,7 @@ def export_session_events_gazeplotter_csv(session_id: str):
         participant = "unknown"
 
     timeline_items = _build_timeline_items_from_events_df(df)
+    task_start_offsets = _build_task_start_offsets(df.to_dict("records"))
 
     segments: List[Dict[str, Any]] = []
     for item in timeline_items:
@@ -897,11 +910,15 @@ def export_session_events_gazeplotter_csv(session_id: str):
             from_ts = point_ts
             to_ts = point_ts
 
-        if to_ts < from_ts:
-            continue
-
         stimulus_raw = item.get("task")
         stimulus = "" if stimulus_raw is None else str(stimulus_raw)
+        stimulus_key = stimulus.strip()
+        task_offset = task_start_offsets.get(stimulus_key, 0) if stimulus_key else 0
+        from_ts -= task_offset
+        to_ts -= task_offset
+
+        if to_ts < from_ts or from_ts < 0:
+            continue
 
         segments.append({
             "From": from_ts,
