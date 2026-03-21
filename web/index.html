@@ -510,7 +510,17 @@
                   <button class="btn" id="openMapModalBtn" type="button">Open map</button>
                 </div>
               </div>
-              <div class="placeholder-box">User's device information</div>
+              <div class="placeholder-box">
+                <div class="row" style="justify-content:space-between; align-items:center; gap:12px; margin-bottom:8px;">
+                  <div class="title">User's device information</div>
+                </div>
+                <div id="sessionDeviceInfoPanel" class="metrics">
+                  <div class="empty">
+                    <div class="empty-title">Select a session</div>
+                    <div class="muted small">Device information will appear here for the currently selected session.</div>
+                  </div>
+                </div>
+              </div>
             </div>
           </section>
         </div>
@@ -888,7 +898,7 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="/static/app.js?v=47"></script>
+  <script src="/static/app.js?v=48"></script>
 </body>
 
 </html>

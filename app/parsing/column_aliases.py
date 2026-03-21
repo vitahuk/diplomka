@@ -20,6 +20,16 @@ SOC_DEMO_COLUMN_ALIASES = {
     "education": {"education", "vzdelani", "vzdělání", "schooling"},
     "nationality": {"nationality", "narodnost", "národnost", "nation", "country", "citizenship", "statniobcanstvi"},
     "device": {"device", "zarizeni", "zařízení", "device_type", "devicetype", "platform", "device_by_url", "devicebyurl"},
+    "confidence": {"confidence", "confident"},
+    "paper_maps": {"paper_maps", "papermaps", "papermap", "paper_map"},
+    "computer_maps": {"computer_maps", "computermaps", "computermap", "computer_map"},
+    "mobile_maps": {"mobile_maps", "mobilemaps", "mobilemap", "mobile_map"},
+    "screenResolution": {"screenResolution", "screen_resolution", "screenresolution"},
+    "viewportSize": {"viewportSize", "viewport_size", "viewportsize"},
+    "browser": {"browser"},
+    "browserVersion": {"browserVersion", "browser_version", "browserversion"},
+    "os": {"os", "operatingSystem", "operating_system", "platform_os"},
+    "ip": {"ip", "ipAddress", "ip_address", "ipaddress"},
 }
 
 

@@ -7,7 +7,24 @@ from typing import Any, Dict, Optional, List, Tuple
 from app.parsing.maptrack_csv import ParsedSession, TaskStream
 from app.normalization.nationality import normalize_nationality
 
-SOC_DEMO_KEYS = ["age", "gender", "occupation", "education", "nationality", "device"]
+SOC_DEMO_KEYS = [
+    "age",
+    "gender",
+    "occupation",
+    "education",
+    "nationality",
+    "device",
+    "confidence",
+    "paper_maps",
+    "computer_maps",
+    "mobile_maps",
+    "screenResolution",
+    "viewportSize",
+    "browser",
+    "browserVersion",
+    "os",
+    "ip",
+]
 
 
 def _safe_int(x: Any) -> Optional[int]:

@@ -46,6 +46,29 @@ function fmtPercent(value) {
   return `${(n * 100).toFixed(1)} %`;
 }
 
+function normalizeBooleanLike(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (value === 1) return true;
+    if (value === 0) return false;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  if (!normalized) return null;
+
+  if (["true", "1", "yes", "y"].includes(normalized)) return true;
+  if (["false", "0", "no", "n"].includes(normalized)) return false;
+  return null;
+}
+
+function formatBooleanCharacteristic(value) {
+  const normalized = normalizeBooleanLike(value);
+  if (normalized === true) return "Yes";
+  if (normalized === false) return "No";
+  return value ?? "—";
+}
+
 function escapeHtml(s) {
   return String(s ?? "")
     .replaceAll("&", "&amp;")
@@ -869,6 +892,7 @@ function renderSessionMetrics() {
         <div class="muted small">Click a session on the left to display its metrics here.</div>
       </div>
     `;
+    renderSessionDeviceInfo();
     if (btn) btn.disabled = true;
     return;
   }
@@ -888,6 +912,10 @@ function renderSessionMetrics() {
     nationality: ["Nationality", soc.nationality ?? "—"],
     education: ["Education", soc.education ?? "—"],
     device: ["Device", soc.device ?? "—"],
+    confidence: ["Confidence", formatBooleanCharacteristic(soc.confidence)],
+    paper_maps: ["Paper maps", formatBooleanCharacteristic(soc.paper_maps)],
+    computer_maps: ["Computer maps", formatBooleanCharacteristic(soc.computer_maps)],
+    mobile_maps: ["Mobile maps", formatBooleanCharacteristic(soc.mobile_maps)],
   };
 
   const rows = { UserID: s.user_id ?? "—" };
@@ -896,8 +924,36 @@ function renderSessionMetrics() {
     if (metric) rows[metric[0]] = metric[1];
   }
   renderMetricGrid(rows, el);
+  renderSessionDeviceInfo();
 
   if (btn) btn.disabled = false;
+}
+
+function renderSessionDeviceInfo() {
+  const el = $("#sessionDeviceInfoPanel");
+  if (!el) return;
+
+  const session = state.selectedSession;
+  if (!session) {
+    el.innerHTML = `
+      <div class="empty">
+        <div class="empty-title">Select a session</div>
+        <div class="muted small">Device information will appear here for the currently selected session.</div>
+      </div>
+    `;
+    return;
+  }
+
+  const soc = session?.stats?.session?.soc_demo ?? {};
+  renderMetricGrid({
+    "Screen resolution": soc.screenResolution ?? "—",
+    "Viewport size": soc.viewportSize ?? "—",
+    "Browser": soc.browser ?? "—",
+    "Browser version": soc.browserVersion ?? "—",
+    "Device": soc.device ?? "—",
+    "Operating system": soc.os ?? "—",
+    "IP address": soc.ip ?? "—",
+  }, el);
 }
 
 // ===== Settings page =====
@@ -1435,10 +1491,12 @@ function renderTasksList() {
         <div class="muted small">Tasks will be loaded once you select a session in the previous step.</div>
       </div>
     `;
+    renderSessionDeviceInfo();
     return;
   }
 
   const tasks = inferTasksForSelectedSession();
+  renderSessionDeviceInfo();
 
   listEl.innerHTML = tasks.map(t => `
     <div class="list-item" data-task="${escapeHtml(t)}">
@@ -4116,6 +4174,10 @@ const SESSION_METRIC_OPTIONS = [
   { key: "nationality", label: "Nationality" },
   { key: "education", label: "Education" },
   { key: "device", label: "Device" },
+  { key: "confidence", label: "Confidence" },
+  { key: "paper_maps", label: "Paper maps" },
+  { key: "computer_maps", label: "Computer maps" },
+  { key: "mobile_maps", label: "Mobile maps" },
 ];
 
 const GROUP_EDIT_METRIC_OPTIONS = SESSION_METRIC_OPTIONS;
@@ -4169,6 +4231,10 @@ function renderGroupEditSessionMetrics() {
     nationality: ["Nationality", soc.nationality ?? "—"],
     education: ["Education", soc.education ?? "—"],
     device: ["Device", soc.device ?? "—"],
+    confidence: ["Confidence", formatBooleanCharacteristic(soc.confidence)],
+    paper_maps: ["Paper maps", formatBooleanCharacteristic(soc.paper_maps)],
+    computer_maps: ["Computer maps", formatBooleanCharacteristic(soc.computer_maps)],
+    mobile_maps: ["Mobile maps", formatBooleanCharacteristic(soc.mobile_maps)],
   };
 
   const rows = { UserID: selected.user_id ?? "—" };
