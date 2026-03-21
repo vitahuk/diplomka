@@ -5,7 +5,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>App without a name (for now)</title>
-  <link rel="stylesheet" href="/static/styles.css?v=35" />
+  <link rel="stylesheet" href="/static/styles.css?v=36" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
 </head>
@@ -363,9 +363,9 @@
             <div class="stack">
               <div class="placeholder-box hidden" id="groupUsersPanel">
                 <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:10px;">
-                  <button class="btn btn-ghost" id="toggleGroupUsersBtn" type="button">Users in group</button>
+                  <button class="btn btn-ghost" id="openGroupMovementRatiosBtn" type="button">Group movement ratios</button>
                 </div>
-                <div class="list" id="groupUsersList"></div>
+                <div class="muted small">Open aggregated MOVE / ZOOM / POPUP ratios for the whole group.</div>
               </div>
               <div class="placeholder-box hidden" id="groupTimeStatsPanel"></div>
               <div class="placeholder-box hidden" id="groupCountsStatsPanel"></div>
@@ -712,6 +712,48 @@
       </div>
     </div>
 
+    <div class="modal hidden" id="groupMovementRatiosModal" role="dialog" aria-modal="true" aria-labelledby="groupMovementRatiosModalTitle">
+      <div class="modal-backdrop" id="groupMovementRatiosModalBackdrop"></div>
+
+      <div class="modal-card" style="width:min(980px, 94vw);">
+        <div class="modal-head">
+          <div>
+            <div class="modal-title" id="groupMovementRatiosModalTitle">Group movement ratios</div>
+            <div class="muted small" id="groupMovementRatiosModalSubtitle">—</div>
+          </div>
+          <button class="icon-btn" id="closeGroupMovementRatiosBtn" type="button" aria-label="Close">✕</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="interval-ratios-controls interval-ratios-controls--group">
+            <label class="filter-field" for="groupMovementRatiosTaskSelect">
+              <span>Task</span>
+              <select id="groupMovementRatiosTaskSelect"></select>
+            </label>
+            <label class="filter-field" for="groupMovementRatiosStatisticSelect">
+              <span>Statistic</span>
+              <select id="groupMovementRatiosStatisticSelect"></select>
+            </label>
+            <div class="filter-field">
+              <span>Interval event types</span>
+              <div class="interval-ratios-toggle-list" id="groupMovementRatiosEventToggles"></div>
+            </div>
+          </div>
+
+          <div id="groupMovementRatiosContent">
+            <div class="empty">
+              <div class="empty-title">Nothing yet</div>
+              <div class="muted small"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="modal-foot">
+          <button class="btn btn-ghost" id="closeGroupMovementRatiosBtn2" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+
     <div class="modal hidden" id="uploadTestModal" role="dialog" aria-modal="true" aria-labelledby="uploadTestTitle">
       <div class="modal-backdrop" id="uploadTestModalBackdrop"></div>
 
@@ -894,6 +936,7 @@
           <button class="tab-btn is-active" type="button" role="tab" data-tab="summary">Table</button>
           <button class="tab-btn" type="button" role="tab" data-tab="chart">Answer correctness</button>
           <button class="tab-btn" type="button" role="tab" data-tab="boxplot">Box plot</button>
+          <button class="tab-btn" type="button" role="tab" data-tab="movement">Movement ratios</button>
           <button class="tab-btn" type="button" role="tab" data-tab="task">Comparison at task level</button>
           <button class="tab-btn" type="button" role="tab" data-tab="answers">Answers</button>
         </div>
@@ -908,6 +951,10 @@
 
         <section class="tab-panel hidden" data-panel="boxplot">
           <div id="groupsCompareBoxplotWrap"></div>
+        </section>
+
+        <section class="tab-panel hidden" data-panel="movement">
+          <div id="groupsCompareMovementWrap"></div>
         </section>
 
         <section class="tab-panel hidden" data-panel="task">
@@ -945,7 +992,7 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="/static/app.js?v=53"></script>
+  <script src="/static/app.js?v=54"></script>
 </body>
 
 </html>

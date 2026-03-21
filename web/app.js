@@ -109,6 +109,11 @@ const INTERVAL_EVENT_OPTIONS = [
   { key: "popup", label: "Popup", color: "#14B8A6" },
 ];
 const INTERVAL_OTHER_OPTION = { key: "other", label: "Other", color: "#94A3B8" };
+const GROUP_RATIO_STAT_OPTIONS = [
+  { key: "average", label: "Average" },
+  { key: "median", label: "Median" },
+  { key: "stddev", label: "Std. deviation" },
+];
 
 const TESTS_STORAGE_KEY = "maptrack_tests";
 const SELECTED_TEST_STORAGE_KEY = "maptrack_selected_test";
@@ -125,6 +130,11 @@ const state = {
     taskKey: "ALL_TASKS",
     visibleEventKeys: INTERVAL_EVENT_OPTIONS.map((option) => option.key),
   },
+  groupMovementRatiosSelection: {
+    taskKey: "ALL_TASKS",
+    statistic: "average",
+    visibleEventKeys: INTERVAL_EVENT_OPTIONS.map((option) => option.key),
+  },
   selectedSessionIds: [],
   sessions: [],
   tests: [],
@@ -137,9 +147,13 @@ const state = {
   groupCompareChartSortMode: "overall",
   groupCompareChartReferenceGroupId: null,
   groupCompareChartColors: {},
+  groupCompareMovementSelection: {
+    taskKey: "ALL_TASKS",
+    statistic: "average",
+    visibleEventKeys: INTERVAL_EVENT_OPTIONS.map((option) => option.key),
+  },
   groupTaskSearchQuery: "",
   selectedGroupCompareTaskId: null,
-  isGroupUsersExpanded: false,
   groupEditSessionIds: [],
   groupEditFlaggedSessionIds: [],
   groupEditSelectedSessionId: null,
@@ -1546,6 +1560,128 @@ function getSelectedIntervalRatioScopePayload() {
   return payload.by_task?.[selectedKey] ?? null;
 }
 
+function getIntervalRatioScopePayloadForSession(session, taskKey = "ALL_TASKS") {
+  const payload = session?.stats?.interval_event_ratios;
+  if (!payload) return null;
+  if (taskKey === "ALL_TASKS") return payload.all_tasks ?? null;
+  return payload.by_task?.[taskKey] ?? null;
+}
+
+function meanFromNumbers(values) {
+  const nums = (values ?? []).map((value) => Number(value)).filter((value) => Number.isFinite(value));
+  if (!nums.length) return null;
+  return nums.reduce((sum, value) => sum + value, 0) / nums.length;
+}
+
+function stdDevFromNumbers(values) {
+  const nums = (values ?? []).map((value) => Number(value)).filter((value) => Number.isFinite(value));
+  if (!nums.length) return null;
+  const mean = meanFromNumbers(nums);
+  if (!Number.isFinite(mean)) return null;
+  const variance = nums.reduce((sum, value) => sum + ((value - mean) ** 2), 0) / nums.length;
+  return Math.sqrt(Math.max(0, variance));
+}
+
+function computeStatisticFromNumbers(values, statistic = "average") {
+  if (statistic === "median") return medianFromNumbers(values);
+  if (statistic === "stddev") return stdDevFromNumbers(values);
+  return meanFromNumbers(values);
+}
+
+function getGroupRatioStatisticLabel(statistic = "average") {
+  return GROUP_RATIO_STAT_OPTIONS.find((option) => option.key === statistic)?.label ?? "Average";
+}
+
+function extractScopeIntervalMetrics(scopePayload) {
+  const taskDurationMs = Math.max(0, safeNum(scopePayload?.task_duration_ms) ?? 0);
+  if (taskDurationMs <= 0) return null;
+
+  const ratios = {};
+  const durations = {};
+  let visibleRatioSum = 0;
+  let visibleDurationSum = 0;
+
+  INTERVAL_EVENT_OPTIONS.forEach((option) => {
+    const eventPayload = scopePayload?.events?.[option.key] ?? {};
+    const ratio = Math.max(0, Math.min(1, safeNum(eventPayload.ratio) ?? 0));
+    const durationMs = Math.max(0, safeNum(eventPayload.duration_ms) ?? 0);
+    ratios[option.key] = ratio;
+    durations[option.key] = durationMs;
+    visibleRatioSum += ratio;
+    visibleDurationSum += durationMs;
+  });
+
+  ratios[INTERVAL_OTHER_OPTION.key] = Math.max(0, 1 - visibleRatioSum);
+  durations[INTERVAL_OTHER_OPTION.key] = Math.max(0, taskDurationMs - visibleDurationSum);
+
+  return { taskDurationMs, ratios, durations };
+}
+
+function getGroupIntervalRatioTaskOptions(sessions) {
+  const options = [{ key: "ALL_TASKS", label: "All tasks" }];
+  const seen = new Set(["ALL_TASKS"]);
+
+  (sessions ?? []).forEach((session) => {
+    const payload = session?.stats?.interval_event_ratios;
+    const byTask = payload?.by_task ?? {};
+    const sessionTasks = Array.isArray(session?.tasks) ? session.tasks : [];
+
+    sessionTasks.forEach((taskId) => {
+      if (typeof taskId !== "string" || seen.has(taskId) || !(taskId in byTask)) return;
+      seen.add(taskId);
+      options.push({ key: taskId, label: taskId });
+    });
+
+    Object.keys(byTask).forEach((taskId) => {
+      if (seen.has(taskId)) return;
+      seen.add(taskId);
+      options.push({ key: taskId, label: taskId });
+    });
+  });
+
+  return options;
+}
+
+function aggregateGroupIntervalRatios(sessions, taskKey = "ALL_TASKS", statistic = "average") {
+  const scopes = (sessions ?? [])
+    .map((session) => extractScopeIntervalMetrics(getIntervalRatioScopePayloadForSession(session, taskKey)))
+    .filter(Boolean);
+
+  if (!scopes.length) return null;
+
+  const eventKeys = [...INTERVAL_EVENT_OPTIONS.map((option) => option.key), INTERVAL_OTHER_OPTION.key];
+  const events = {};
+
+  eventKeys.forEach((eventKey) => {
+    const ratioValues = scopes.map((scope) => scope.ratios[eventKey] ?? 0);
+    const durationValues = scopes.map((scope) => scope.durations[eventKey] ?? 0);
+    const ratioValue = computeStatisticFromNumbers(ratioValues, statistic);
+    const durationValue = computeStatisticFromNumbers(durationValues, statistic);
+    events[eventKey] = {
+      ratio: statistic === "stddev" ? Math.max(0, ratioValue ?? 0) : Math.max(0, Math.min(1, ratioValue ?? 0)),
+      duration_ms: Math.max(0, durationValue ?? 0),
+    };
+  });
+
+  const dominantBehavior = INTERVAL_EVENT_OPTIONS
+    .map((option) => ({
+      event_key: option.key,
+      label: option.label,
+      ratio: events[option.key]?.ratio ?? 0,
+      duration_ms: events[option.key]?.duration_ms ?? 0,
+    }))
+    .sort((a, b) => b.ratio - a.ratio)[0] ?? null;
+
+  return {
+    sessionsCount: scopes.length,
+    statistic,
+    statisticLabel: getGroupRatioStatisticLabel(statistic),
+    task_duration_ms: Math.max(0, computeStatisticFromNumbers(scopes.map((scope) => scope.taskDurationMs), statistic) ?? 0),
+    events,
+    dominant_behavior: dominantBehavior?.ratio > 0 ? dominantBehavior : null,
+  };
+}
+
 function renderIntervalRatiosModal() {
   const subtitle = $("#intervalRatiosModalSubtitle");
   const taskSelect = $("#intervalRatiosTaskSelect");
@@ -1680,6 +1816,192 @@ function renderIntervalRatiosModal() {
       renderIntervalRatiosModal();
     });
   });
+}
+
+function renderGroupIntervalRatiosPanel({
+  aggregate,
+  scopeLabel,
+  visibleEventKeys,
+  emptyMessage = "No interval ratios available for the selected scope.",
+}) {
+  if (!aggregate) {
+    return `
+      <div class="empty">
+        <div class="empty-title">No interval ratios available</div>
+        <div class="muted small">${escapeHtml(emptyMessage)}</div>
+      </div>
+    `;
+  }
+
+  const visibleOptions = INTERVAL_EVENT_OPTIONS.filter((option) => visibleEventKeys.has(option.key));
+  const rows = [
+    ...visibleOptions.map((option) => {
+      const eventPayload = aggregate.events?.[option.key] ?? {};
+      const ratio = Math.max(0, safeNum(eventPayload.ratio) ?? 0);
+      const durationMs = Math.max(0, safeNum(eventPayload.duration_ms) ?? 0);
+      return `
+        <div class="interval-ratios-row">
+          <div class="interval-ratios-label">
+            <span class="interval-ratios-dot" style="background:${option.color};"></span>
+            <span>${escapeHtml(option.label)}</span>
+          </div>
+          <div class="interval-ratios-bar-track">
+            <div class="interval-ratios-bar-fill" style="width:${Math.max(0, Math.min(100, ratio * 100))}%; background:${option.color};"></div>
+            <div class="interval-ratios-bar-text">${fmtPercent(ratio)}</div>
+          </div>
+          <div class="interval-ratios-value">${fmtMs(durationMs)}</div>
+        </div>
+      `;
+    }),
+    `
+      <div class="interval-ratios-row">
+        <div class="interval-ratios-label">
+          <span class="interval-ratios-dot" style="background:${INTERVAL_OTHER_OPTION.color};"></span>
+          <span>${escapeHtml(INTERVAL_OTHER_OPTION.label)}</span>
+        </div>
+        <div class="interval-ratios-bar-track">
+          <div class="interval-ratios-bar-fill" style="width:${Math.max(0, Math.min(100, (aggregate.events?.[INTERVAL_OTHER_OPTION.key]?.ratio ?? 0) * 100))}%; background:${INTERVAL_OTHER_OPTION.color};"></div>
+          <div class="interval-ratios-bar-text">${fmtPercent(aggregate.events?.[INTERVAL_OTHER_OPTION.key]?.ratio ?? 0)}</div>
+        </div>
+        <div class="interval-ratios-value">${fmtMs(aggregate.events?.[INTERVAL_OTHER_OPTION.key]?.duration_ms ?? 0)}</div>
+      </div>
+    `,
+  ].join("");
+
+  const dominantBehavior = aggregate.dominant_behavior ?? null;
+  const dominantBehaviorColor = (INTERVAL_EVENT_OPTIONS.find((option) => option.key === dominantBehavior?.event_key) ?? INTERVAL_OTHER_OPTION).color;
+  const dominantBehaviorMarkup = dominantBehavior?.event_key ? `
+    <div class="interval-ratios-summary">
+      <div class="interval-ratios-summary-label">Dominant behavior</div>
+      <div class="interval-ratios-summary-main">
+        <span class="interval-ratios-dot" style="background:${dominantBehaviorColor};"></span>
+        <span>${escapeHtml(dominantBehavior.label ?? dominantBehavior.event_key ?? "—")}</span>
+      </div>
+      <div class="interval-ratios-summary-sub">${fmtPercent(dominantBehavior.ratio ?? 0)} · ${fmtMs(dominantBehavior.duration_ms ?? 0)}</div>
+    </div>
+  ` : `
+    <div class="interval-ratios-summary">
+      <div class="interval-ratios-summary-label">Dominant behavior</div>
+      <div class="interval-ratios-summary-main">—</div>
+      <div class="interval-ratios-summary-sub">No MOVE / ZOOM / POPUP interval recorded for this scope.</div>
+    </div>
+  `;
+
+  const taskDurationMs = Math.max(0, safeNum(aggregate.task_duration_ms) ?? 0);
+  const metricLabel = escapeHtml(aggregate.statisticLabel ?? "Average");
+  const subtitleText = aggregate.statistic === "stddev"
+    ? `${metricLabel} across session-level interval ratios. Right column shows spread in time.`
+    : `${metricLabel} across session-level interval ratios. Reference task duration: ${fmtMs(taskDurationMs)}.`;
+
+  return `
+    <div class="interval-ratios-panel">
+      <div class="interval-ratios-title">${escapeHtml(scopeLabel)}</div>
+      <div class="interval-ratios-subtitle">${subtitleText}</div>
+      ${dominantBehaviorMarkup}
+      <div class="interval-ratios-chart-card">
+        <div class="interval-ratios-chart">${rows}</div>
+      </div>
+      <div class="interval-ratios-footnote">Computed from ${escapeHtml(String(aggregate.sessionsCount ?? 0))} session(s). “Other” represents the remaining ratio outside the currently displayed Move / Zoom / Popup intervals for each session before aggregation.</div>
+    </div>
+  `;
+}
+
+function renderGroupMovementRatiosModal() {
+  const subtitle = $("#groupMovementRatiosModalSubtitle");
+  const taskSelect = $("#groupMovementRatiosTaskSelect");
+  const statisticSelect = $("#groupMovementRatiosStatisticSelect");
+  const togglesEl = $("#groupMovementRatiosEventToggles");
+  const contentEl = $("#groupMovementRatiosContent");
+  const group = getSelectedGroup();
+  const sessions = Array.isArray(group?.sessions) ? group.sessions : [];
+
+  if (subtitle) {
+    subtitle.textContent = group?.name
+      ? `Group: ${group.name} · Sessions in group: ${sessions.length}`
+      : "—";
+  }
+
+  if (!taskSelect || !statisticSelect || !togglesEl || !contentEl) return;
+
+  const taskOptions = getGroupIntervalRatioTaskOptions(sessions);
+  if (!taskOptions.some((option) => option.key === state.groupMovementRatiosSelection.taskKey)) {
+    state.groupMovementRatiosSelection.taskKey = "ALL_TASKS";
+  }
+
+  taskSelect.innerHTML = taskOptions
+    .map((option) => `<option value="${escapeHtml(option.key)}">${escapeHtml(option.label)}</option>`)
+    .join("");
+  taskSelect.value = state.groupMovementRatiosSelection.taskKey;
+
+  statisticSelect.innerHTML = GROUP_RATIO_STAT_OPTIONS
+    .map((option) => `<option value="${escapeHtml(option.key)}">${escapeHtml(option.label)}</option>`)
+    .join("");
+  statisticSelect.value = state.groupMovementRatiosSelection.statistic;
+
+  const selectedVisible = new Set(state.groupMovementRatiosSelection.visibleEventKeys ?? []);
+  togglesEl.innerHTML = INTERVAL_EVENT_OPTIONS.map((option) => `
+    <label class="interval-ratios-toggle">
+      <input type="checkbox" data-role="group-interval-ratio-toggle" value="${escapeHtml(option.key)}" ${selectedVisible.has(option.key) ? "checked" : ""} />
+      <span class="interval-ratios-dot" style="background:${option.color};"></span>
+      <span>${escapeHtml(option.label)}</span>
+    </label>
+  `).join("");
+
+  if (!group || !sessions.length) {
+    contentEl.innerHTML = `
+      <div class="empty">
+        <div class="empty-title">Select a group first</div>
+        <div class="muted small">Choose a group on the Groups page to display aggregated movement ratios.</div>
+      </div>
+    `;
+  } else {
+    const aggregate = aggregateGroupIntervalRatios(
+      sessions,
+      state.groupMovementRatiosSelection.taskKey,
+      state.groupMovementRatiosSelection.statistic,
+    );
+    const scopeLabel = state.groupMovementRatiosSelection.taskKey === "ALL_TASKS"
+      ? "All tasks"
+      : state.groupMovementRatiosSelection.taskKey;
+    contentEl.innerHTML = renderGroupIntervalRatiosPanel({
+      aggregate,
+      scopeLabel,
+      visibleEventKeys: selectedVisible,
+      emptyMessage: "This group does not contain sessions with computed task durations and interval events for the selected scope.",
+    });
+  }
+
+  taskSelect.onchange = () => {
+    state.groupMovementRatiosSelection.taskKey = taskSelect.value || "ALL_TASKS";
+    renderGroupMovementRatiosModal();
+  };
+
+  statisticSelect.onchange = () => {
+    state.groupMovementRatiosSelection.statistic = statisticSelect.value || "average";
+    renderGroupMovementRatiosModal();
+  };
+
+  $$("#groupMovementRatiosEventToggles [data-role='group-interval-ratio-toggle']").forEach((input) => {
+    input.addEventListener("change", () => {
+      state.groupMovementRatiosSelection.visibleEventKeys = $$("#groupMovementRatiosEventToggles [data-role='group-interval-ratio-toggle']:checked")
+        .map((checkbox) => checkbox.value);
+      renderGroupMovementRatiosModal();
+    });
+  });
+}
+
+function openGroupMovementRatiosModal() {
+  if (!getSelectedGroup()) return;
+  const taskOptions = getGroupIntervalRatioTaskOptions(getSelectedGroup()?.sessions ?? []);
+  if (!taskOptions.some((option) => option.key === state.groupMovementRatiosSelection.taskKey)) {
+    state.groupMovementRatiosSelection.taskKey = "ALL_TASKS";
+  }
+  show($("#groupMovementRatiosModal"));
+  renderGroupMovementRatiosModal();
+}
+
+function closeGroupMovementRatiosModal() {
+  hide($("#groupMovementRatiosModal"));
 }
 
 function openIntervalRatiosModal() {
@@ -3734,6 +4056,136 @@ function renderGroupCompareBoxplotTab(groups) {
   });
 }
 
+function renderGroupCompareMovementTab(groups) {
+  const wrap = $("#groupsCompareMovementWrap");
+  if (!wrap) return;
+
+  if (!groups.length) {
+    wrap.innerHTML = `<div class="empty"><div class="empty-title">No groups selected</div><div class="muted small">Select groups for comparison on the Groups page.</div></div>`;
+    return;
+  }
+
+  const taskOptions = getGroupIntervalRatioTaskOptions(groups.flatMap((group) => Array.isArray(group?.sessions) ? group.sessions : []));
+  if (!taskOptions.some((option) => option.key === state.groupCompareMovementSelection.taskKey)) {
+    state.groupCompareMovementSelection.taskKey = "ALL_TASKS";
+  }
+
+  const selectedVisible = new Set(state.groupCompareMovementSelection.visibleEventKeys ?? []);
+  const aggregates = groups.map((group, index) => ({
+    group,
+    color: getGroupCompareColor(group.id, index),
+    aggregate: aggregateGroupIntervalRatios(
+      Array.isArray(group?.sessions) ? group.sessions : [],
+      state.groupCompareMovementSelection.taskKey,
+      state.groupCompareMovementSelection.statistic,
+    ),
+  }));
+  const availableAggregates = aggregates.filter((item) => item.aggregate);
+
+  wrap.innerHTML = `
+    <div class="interval-ratios-controls interval-ratios-controls--group">
+      <label class="filter-field" for="groupsCompareMovementTaskSelect">
+        <span>Task</span>
+        <select id="groupsCompareMovementTaskSelect">
+          ${taskOptions.map((option) => `<option value="${escapeHtml(option.key)}" ${option.key === state.groupCompareMovementSelection.taskKey ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
+        </select>
+      </label>
+      <label class="filter-field" for="groupsCompareMovementStatisticSelect">
+        <span>Statistic</span>
+        <select id="groupsCompareMovementStatisticSelect">
+          ${GROUP_RATIO_STAT_OPTIONS.map((option) => `<option value="${escapeHtml(option.key)}" ${option.key === state.groupCompareMovementSelection.statistic ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
+        </select>
+      </label>
+      <div class="filter-field">
+        <span>Interval event types</span>
+        <div class="interval-ratios-toggle-list" id="groupsCompareMovementEventToggles">
+          ${INTERVAL_EVENT_OPTIONS.map((option) => `
+            <label class="interval-ratios-toggle">
+              <input type="checkbox" data-role="groups-compare-interval-toggle" value="${escapeHtml(option.key)}" ${selectedVisible.has(option.key) ? "checked" : ""} />
+              <span class="interval-ratios-dot" style="background:${option.color};"></span>
+              <span>${escapeHtml(option.label)}</span>
+            </label>
+          `).join("")}
+        </div>
+      </div>
+    </div>
+  `;
+
+  if (!availableAggregates.length) {
+    wrap.innerHTML += `
+      <div class="interval-ratios-panel">
+        <div class="empty">
+          <div class="empty-title">No interval ratios available</div>
+          <div class="muted small">The selected groups do not contain sessions with computed interval-event ratios for this scope.</div>
+        </div>
+      </div>
+    `;
+  } else {
+    const rows = [...INTERVAL_EVENT_OPTIONS.filter((option) => selectedVisible.has(option.key)), INTERVAL_OTHER_OPTION]
+      .map((option) => {
+        const barRows = availableAggregates.map((item) => {
+          const eventPayload = item.aggregate.events?.[option.key] ?? {};
+          const ratio = Math.max(0, safeNum(eventPayload.ratio) ?? 0);
+          return `
+            <div class="group-compare-movement-bar-row">
+              <div class="group-compare-movement-bar-label">${escapeHtml(item.group.name ?? item.group.id ?? "—")}</div>
+              <div class="group-compare-movement-bar-track">
+                <div class="group-compare-movement-bar-fill" style="width:${Math.max(0, Math.min(100, ratio * 100))}%; background:${escapeHtml(item.color)};"></div>
+                <div class="group-compare-movement-bar-text">${fmtPercent(ratio)}</div>
+              </div>
+            </div>
+          `;
+        }).join("");
+
+        return `
+          <div class="group-compare-movement-section">
+            <div class="group-compare-movement-title">
+              <span class="interval-ratios-dot" style="background:${escapeHtml(option.color)};"></span>
+              <span>${escapeHtml(option.label)}</span>
+            </div>
+            <div class="group-compare-movement-bars">${barRows}</div>
+          </div>
+        `;
+      }).join("");
+
+    wrap.innerHTML += `
+      <div class="compare-chart-legend">
+        ${availableAggregates.map((item) => `
+          <div class="compare-chart-legend-item">
+            <span class="compare-chart-legend-line" style="background:${escapeHtml(item.color)}"></span>
+            <span>${escapeHtml(item.group.name ?? item.group.id ?? "—")}</span>
+          </div>
+        `).join("")}
+      </div>
+
+      <div class="interval-ratios-panel">
+        <div class="interval-ratios-title">${escapeHtml(state.groupCompareMovementSelection.taskKey === "ALL_TASKS" ? "All tasks" : state.groupCompareMovementSelection.taskKey)}</div>
+        <div class="interval-ratios-subtitle">${escapeHtml(getGroupRatioStatisticLabel(state.groupCompareMovementSelection.statistic))} across session-level interval ratios for each selected group.</div>
+        <div class="group-compare-movement-chart-card">
+          ${rows}
+        </div>
+        <div class="interval-ratios-footnote">Each section compares one movement type. Every bar represents the selected statistic computed from session-level movement ratios inside that group. “Other” is the remaining ratio outside Move / Zoom / Popup for each session.</div>
+      </div>
+    `;
+  }
+
+  $("#groupsCompareMovementTaskSelect")?.addEventListener("change", (e) => {
+    state.groupCompareMovementSelection.taskKey = e.target?.value || "ALL_TASKS";
+    renderGroupCompareModal();
+  });
+  $("#groupsCompareMovementStatisticSelect")?.addEventListener("change", (e) => {
+    state.groupCompareMovementSelection.statistic = e.target?.value || "average";
+    renderGroupCompareModal();
+  });
+  $$("#groupsCompareMovementEventToggles [data-role='groups-compare-interval-toggle']").forEach((input) => {
+    input.addEventListener("change", () => {
+      state.groupCompareMovementSelection.visibleEventKeys = $$("#groupsCompareMovementEventToggles [data-role='groups-compare-interval-toggle']:checked")
+        .map((checkbox) => checkbox.value);
+      renderGroupCompareModal();
+    });
+  });
+}
+
 const GROUP_COMPARE_DIMENSIONS = {
   nationality: { label: "Nationality", key: "nationality" },
 };
@@ -4309,9 +4761,8 @@ function renderGroupCompareAnswersTab(groups) {
 
 function renderGroupsPage() {
   const groupsListEl = $("#groupsList");
-  const usersListEl = $("#groupUsersList");
   const usersPanelEl = $("#groupUsersPanel");
-  const usersToggleEl = $("#toggleGroupUsersBtn");
+  const groupMovementBtn = $("#openGroupMovementRatiosBtn");
   const editBtn = $("#editGroupBtn");
   const timePanelEl = $("#groupTimeStatsPanel");
   const countsPanelEl = $("#groupCountsStatsPanel");
@@ -4319,7 +4770,7 @@ function renderGroupsPage() {
   const socioPanelEl = $("#groupSocioPanel");
   const searchQuery = normalizeSearchText(state.groupsSearchQuery);
   const compareBtn = $("#openGroupsCompareBtn");
-  if (!groupsListEl || !usersListEl || !usersPanelEl || !usersToggleEl) return;
+  if (!groupsListEl || !usersPanelEl || !groupMovementBtn) return;
 
   const filteredGroups = state.groups.filter((g) => normalizeSearchText(g.name).includes(searchQuery));
 
@@ -4330,13 +4781,7 @@ function renderGroupsPage() {
         <div class="muted small">On the Sessions page, select users and create your first group.</div>
       </div>
     `;
-    usersListEl.innerHTML = `
-      <div class="empty">
-        <div class="empty-title">Select a group</div>
-        <div class="muted small">Once you create a group, members will be displayed here.</div>
-      </div>
-    `;
-    usersListEl.style.display = "none";
+    
     usersPanelEl.classList.add("hidden");
     timePanelEl?.classList.add("hidden");
     countsPanelEl?.classList.add("hidden");
@@ -4371,7 +4816,6 @@ function renderGroupsPage() {
   $$("#groupsList .list-item").forEach((item) => {
     item.addEventListener("click", () => {
       state.selectedGroupId = item.dataset.group;
-      state.isGroupUsersExpanded = false;
       renderGroupsPage();
     });
   });
@@ -4393,8 +4837,6 @@ function renderGroupsPage() {
   const group = getSelectedGroup();
   if (!group) {
     usersPanelEl.classList.add("hidden");
-    usersListEl.innerHTML = `<div class="empty"><div class="empty-title">Select a group</div></div>`;
-    usersListEl.style.display = "none";
     timePanelEl?.classList.add("hidden");
     countsPanelEl?.classList.add("hidden");
     answersPanelEl?.classList.add("hidden");
@@ -4406,29 +4848,7 @@ function renderGroupsPage() {
 
   usersPanelEl.classList.remove("hidden");
 
-  const sessions = Array.isArray(group.sessions) ? group.sessions : [];
-  usersToggleEl.textContent = state.isGroupUsersExpanded
-    ? `Collapse users in group (${sessions.length})`
-    : `Expand users in group (${sessions.length})`;
-  usersListEl.style.display = state.isGroupUsersExpanded ? "grid" : "none";
-  if (!sessions.length) {
-    usersListEl.innerHTML = `
-      <div class="empty">
-        <div class="empty-title">Group is empty</div>
-        <div class="muted small">Use the group edit button to add users.</div>
-      </div>
-    `;
-  } else {
-    usersListEl.innerHTML = sessions.map((s) => {
-      const ss = s.stats?.session ?? {};
-      return `
-        <div class="list-item">
-          <div class="row"><div class="title">${escapeHtml(s.user_id ?? "—")}</div></div>
-          <div class="muted small">session: ${escapeHtml(s.session_id ?? "—")} · events: ${escapeHtml(ss.events_total ?? "—")} · duration: ${escapeHtml(fmtMs(ss.duration_ms))}</div>
-        </div>
-      `;
-    }).join("");
-  }
+  groupMovementBtn.disabled = !(Array.isArray(group.sessions) && group.sessions.length);
 
   if (answersPanelEl) answersPanelEl.classList.remove("hidden");
   renderGroupAnswersAndWordcloud(group);
@@ -4437,6 +4857,9 @@ function renderGroupsPage() {
   renderGroupSocioStats(group);
 
   if (editBtn) editBtn.disabled = false;
+  if (!$("#groupMovementRatiosModal")?.classList.contains("hidden")) {
+    renderGroupMovementRatiosModal();
+  }
 }
 
 
@@ -4947,6 +5370,7 @@ function renderGroupCompareModal() {
   renderGroupCompareSummaryTab(groups);
   renderGroupCompareChartTab(groups);
   renderGroupCompareBoxplotTab(groups);
+  renderGroupCompareMovementTab(groups);
   renderGroupCompareTaskTab(groups);
   renderGroupCompareAnswersTab(groups);
 }
@@ -5074,6 +5498,10 @@ if (!normalizedTestId) {
   if (!$("#intervalRatiosModal")?.classList.contains("hidden")) {
     renderIntervalRatiosModal();
   }
+  
+  if (!$("#groupMovementRatiosModal")?.classList.contains("hidden")) {
+    renderGroupMovementRatiosModal();
+  }
 }
 
 
@@ -5113,6 +5541,9 @@ async function refreshSessions() {
 
   if (!$("#view-groups")?.classList.contains("hidden")) {
     refreshGroups().then(() => renderGroupsPage());
+  }
+  if (!$("#groupMovementRatiosModal")?.classList.contains("hidden")) {
+    renderGroupMovementRatiosModal();
   }
 }
 
@@ -5160,7 +5591,6 @@ function wireNavButtons() {
 
   $("#openGroupsBtn")?.addEventListener("click", async () => {
     await refreshGroups();
-    state.isGroupUsersExpanded = false;
     setPage("groups")
     const groupsSearchInput = $("#groupsSearchInput");
     if (groupsSearchInput) groupsSearchInput.value = state.groupsSearchQuery ?? "";
@@ -5189,6 +5619,10 @@ function wireNavButtons() {
   $("#openGroupsCompareBtn")?.addEventListener("click", () => {
     openGroupCompareModal();
   });
+  
+  $("#openGroupMovementRatiosBtn")?.addEventListener("click", () => {
+    openGroupMovementRatiosModal();
+  });
 
   $("#groupsSearchInput")?.addEventListener("input", (e) => {
     state.groupsSearchQuery = e.target?.value ?? "";
@@ -5215,11 +5649,6 @@ function wireNavButtons() {
 
     resetClientStateForLogout();
     redirectToLogin();
-  });
-
-  $("#toggleGroupUsersBtn")?.addEventListener("click", () => {
-    state.isGroupUsersExpanded = !state.isGroupUsersExpanded;
-    renderGroupsPage();
   });
 
   $("#settingsReloadBtn")?.addEventListener("click", async () => {
@@ -5290,8 +5719,10 @@ function wireNavButtons() {
   $("#groupEditCreateGroupFromSelectedBtn")?.addEventListener("click", openGroupSplitModal);
   $("#groupEditDeleteFlaggedBtn")?.addEventListener("click", deleteFlaggedFromGroup);
   $("#groupEditExportCsvBtn")?.addEventListener("click", exportCurrentGroupCsv);
+  $("#closeGroupMovementRatiosBtn")?.addEventListener("click", closeGroupMovementRatiosModal);
+  $("#closeGroupMovementRatiosBtn2")?.addEventListener("click", closeGroupMovementRatiosModal);
+  $("#groupMovementRatiosModalBackdrop")?.addEventListener("click", closeGroupMovementRatiosModal);
 
-  //Timeline button (on "Tasks in session" page, right column)
   $("#openTimelineBtn")?.addEventListener("click", () => {
     openTimelineModal();
   });
@@ -5418,6 +5849,9 @@ function wireModal() {
 
       const modalRatios = $("#intervalRatiosModal");
       if (modalRatios && !modalRatios.classList.contains("hidden")) closeIntervalRatiosModal();
+
+      const modalGroupRatios = $("#groupMovementRatiosModal");
+      if (modalGroupRatios && !modalGroupRatios.classList.contains("hidden")) closeGroupMovementRatiosModal();
 
       const modal3 = $("#uploadTestModal");
       if (modal3 && !modal3.classList.contains("hidden")) closeUploadTestModal();
