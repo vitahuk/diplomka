@@ -103,6 +103,12 @@ function isCoordinateLike(s) {
   return /^-?\d+(\.\d+)?\s*,\s*-?\d+(\.\d+)?$/.test(String(s).trim());
 }
 
+const INTERVAL_EVENT_OPTIONS = [
+  { key: "move", label: "Move", color: "#4F8EF7" },
+  { key: "zoom", label: "Zoom", color: "#8B5CF6" },
+  { key: "popup", label: "Popup", color: "#14B8A6" },
+];
+
 const TESTS_STORAGE_KEY = "maptrack_tests";
 const SELECTED_TEST_STORAGE_KEY = "maptrack_selected_test";
 const GROUP_DRAFT_SELECTION_KEY = "maptrack_group_selection";
@@ -114,6 +120,10 @@ const state = {
   selectedSessionId: null,
   selectedSession: null,
   selectedTaskId: null,
+  intervalRatiosSelection: {
+    taskKey: "ALL_TASKS",
+    visibleEventKeys: INTERVAL_EVENT_OPTIONS.map((option) => option.key),
+  },
   selectedSessionIds: [],
   sessions: [],
   tests: [],
@@ -1499,6 +1509,158 @@ function inferTasksForSelectedSession() {
   if (!s) return [];
   if (Array.isArray(s.tasks) && s.tasks.length) return s.tasks;
   return [s.task ?? "unknown"];
+}
+
+function getSelectedSessionIntervalRatios() {
+  return state.selectedSession?.stats?.interval_event_ratios ?? null;
+}
+
+function getIntervalRatioTaskOptions() {
+  const payload = getSelectedSessionIntervalRatios();
+  const sessionTasks = inferTasksForSelectedSession();
+  const byTask = payload?.by_task ?? {};
+  const options = [{ key: "ALL_TASKS", label: "All tasks" }];
+
+  sessionTasks.forEach((taskId) => {
+    if (taskId in byTask) {
+      options.push({ key: taskId, label: taskId });
+    }
+  });
+
+  Object.keys(byTask).forEach((taskId) => {
+    if (!options.some((option) => option.key === taskId)) {
+      options.push({ key: taskId, label: taskId });
+    }
+  });
+
+  return options;
+}
+
+function getSelectedIntervalRatioScopePayload() {
+  const payload = getSelectedSessionIntervalRatios();
+  if (!payload) return null;
+
+  const selectedKey = state.intervalRatiosSelection?.taskKey ?? "ALL_TASKS";
+  if (selectedKey === "ALL_TASKS") return payload.all_tasks ?? null;
+  return payload.by_task?.[selectedKey] ?? null;
+}
+
+function renderIntervalRatiosModal() {
+  const subtitle = $("#intervalRatiosModalSubtitle");
+  const taskSelect = $("#intervalRatiosTaskSelect");
+  const togglesEl = $("#intervalRatiosEventToggles");
+  const contentEl = $("#intervalRatiosContent");
+  const session = state.selectedSession;
+  const payload = getSelectedSessionIntervalRatios();
+
+  if (subtitle) {
+    subtitle.textContent = session?.session_id
+      ? `Session: ${session.session_id} · User: ${session.user_id ?? "—"}`
+      : "—";
+  }
+
+  if (!taskSelect || !togglesEl || !contentEl) return;
+
+  const taskOptions = getIntervalRatioTaskOptions();
+  if (!taskOptions.some((option) => option.key === state.intervalRatiosSelection.taskKey)) {
+    state.intervalRatiosSelection.taskKey = "ALL_TASKS";
+  }
+
+  taskSelect.innerHTML = taskOptions
+    .map((option) => `<option value="${escapeHtml(option.key)}">${escapeHtml(option.label)}</option>`)
+    .join("");
+  taskSelect.value = state.intervalRatiosSelection.taskKey;
+
+  const selectedVisible = new Set(state.intervalRatiosSelection.visibleEventKeys ?? []);
+  togglesEl.innerHTML = INTERVAL_EVENT_OPTIONS.map((option) => `
+    <label class="interval-ratios-toggle">
+      <input type="checkbox" data-role="interval-ratio-toggle" value="${escapeHtml(option.key)}" ${selectedVisible.has(option.key) ? "checked" : ""} />
+      <span class="interval-ratios-dot" style="background:${option.color};"></span>
+      <span>${escapeHtml(option.label)}</span>
+    </label>
+  `).join("");
+
+  const scopePayload = getSelectedIntervalRatioScopePayload();
+  if (!session || !payload || !scopePayload) {
+    contentEl.innerHTML = `
+      <div class="empty">
+        <div class="empty-title">No interval ratios available</div>
+        <div class="muted small">Select a session with computed task durations and interval events.</div>
+      </div>
+    `;
+  } else {
+    const visibleOptions = INTERVAL_EVENT_OPTIONS.filter((option) => selectedVisible.has(option.key));
+    if (!visibleOptions.length) {
+      contentEl.innerHTML = `
+        <div class="empty">
+          <div class="empty-title">No interval event selected</div>
+          <div class="muted small">Choose at least one of the interval event types above.</div>
+        </div>
+      `;
+    } else {
+      const scopeLabel = state.intervalRatiosSelection.taskKey === "ALL_TASKS" ? "All tasks" : state.intervalRatiosSelection.taskKey;
+      const taskDurationMs = safeNum(scopePayload.task_duration_ms);
+      const chartRows = visibleOptions.map((option) => {
+        const eventPayload = scopePayload.events?.[option.key] ?? {};
+        const ratio = safeNum(eventPayload.ratio);
+        const durationMs = safeNum(eventPayload.duration_ms) ?? 0;
+        const width = Math.max(0, Math.min(100, (ratio ?? 0) * 100));
+        return `
+          <div class="interval-ratios-row">
+            <div class="interval-ratios-label">
+              <span class="interval-ratios-dot" style="background:${option.color};"></span>
+              <span>${escapeHtml(option.label)}</span>
+            </div>
+            <div class="interval-ratios-bar-track">
+              <div class="interval-ratios-bar-fill" style="width:${width}%; background:${option.color};"></div>
+              <div class="interval-ratios-bar-text">${fmtPercent(ratio ?? 0)}</div>
+            </div>
+            <div class="interval-ratios-value">${fmtMs(durationMs)}</div>
+          </div>
+        `;
+      }).join("");
+
+      contentEl.innerHTML = `
+        <div class="interval-ratios-panel">
+          <div class="interval-ratios-header">
+            <div>
+              <div class="interval-ratios-title">${escapeHtml(scopeLabel)}</div>
+              <div class="interval-ratios-subtitle">100% = total completion time of the selected task scope (${fmtMs(taskDurationMs)}).</div>
+            </div>
+          </div>
+          <div class="interval-ratios-chart">${chartRows}</div>
+          <div class="interval-ratios-footnote">Right column shows summed interval duration exported for GazePlotter. Percentage = interval duration / total task time.</div>
+        </div>
+      `;
+    }
+  }
+
+  taskSelect.onchange = () => {
+    state.intervalRatiosSelection.taskKey = taskSelect.value || "ALL_TASKS";
+    renderIntervalRatiosModal();
+  };
+
+  $$(`#intervalRatiosEventToggles [data-role='interval-ratio-toggle']`).forEach((input) => {
+    input.addEventListener("change", () => {
+      state.intervalRatiosSelection.visibleEventKeys = $$(`#intervalRatiosEventToggles [data-role='interval-ratio-toggle']:checked`)
+        .map((checkbox) => checkbox.value);
+      renderIntervalRatiosModal();
+    });
+  });
+}
+
+function openIntervalRatiosModal() {
+  if (!state.selectedSession) return;
+  const taskOptions = getIntervalRatioTaskOptions();
+  if (!taskOptions.some((option) => option.key === state.intervalRatiosSelection.taskKey)) {
+    state.intervalRatiosSelection.taskKey = "ALL_TASKS";
+  }
+  show($("#intervalRatiosModal"));
+  renderIntervalRatiosModal();
+}
+
+function closeIntervalRatiosModal() {
+  hide($("#intervalRatiosModal"));
 }
 
 function renderTasksList() {
@@ -4879,12 +5041,17 @@ if (!normalizedTestId) {
   if (!$("#view-groups")?.classList.contains("hidden")) {
     refreshGroups().then(() => renderGroupsPage());
   }
+
+  if (!$("#intervalRatiosModal")?.classList.contains("hidden")) {
+    renderIntervalRatiosModal();
+  }
 }
 
 
 function selectSession(sessionId) {
   state.selectedSessionId = sessionId;
   state.selectedSession = state.sessions.find(s => s.session_id === sessionId) ?? null;
+  state.intervalRatiosSelection.taskKey = "ALL_TASKS";
   updateBreadcrumbs();
 
   $$("#sessionsList .list-item").forEach(item => {
@@ -4892,6 +5059,9 @@ function selectSession(sessionId) {
   });
 
   renderSessionMetrics();
+  if (!$("#intervalRatiosModal")?.classList.contains("hidden")) {
+    renderIntervalRatiosModal();
+  }
 }
 
 // ===== Loading data =====
@@ -5057,6 +5227,10 @@ function wireNavButtons() {
     openTimelineModal();
   });
 
+  $("#openIntervalRatiosBtn")?.addEventListener("click", () => {
+    openIntervalRatiosModal();
+  });
+
   $("#openMapModalBtn")?.addEventListener("click", () => {
     openSessionMapModal();
   });
@@ -5100,6 +5274,9 @@ function wireModal() {
   // NEW: timeline modal close wiring (only if modal exists in HTML)
   $("#closeTimelineBtn")?.addEventListener("click", closeTimelineModal);
   $("#exportTimelineCsvBtn")?.addEventListener("click", exportTimelineCsvForSelectedSession);
+  $("#closeIntervalRatiosBtn")?.addEventListener("click", closeIntervalRatiosModal);
+  $("#closeIntervalRatiosBtn2")?.addEventListener("click", closeIntervalRatiosModal);
+  $("#intervalRatiosModalBackdrop")?.addEventListener("click", closeIntervalRatiosModal);
 
   $("#closeGroupCreateBtn")?.addEventListener("click", closeCreateGroupModal);
   $("#cancelGroupCreateBtn")?.addEventListener("click", closeCreateGroupModal);
@@ -5170,6 +5347,8 @@ function wireModal() {
       const modal2 = $("#timelineModal");
       if (modal2 && !modal2.classList.contains("hidden")) closeTimelineModal();
 
+      const modalRatios = $("#intervalRatiosModal");
+      if (modalRatios && !modalRatios.classList.contains("hidden")) closeIntervalRatiosModal();
 
       const modal3 = $("#uploadTestModal");
       if (modal3 && !modal3.classList.contains("hidden")) closeUploadTestModal();

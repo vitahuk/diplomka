@@ -1042,6 +1042,131 @@ p {
   margin-bottom: 12px;
 }
 
+.interval-ratios-controls {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.interval-ratios-toggle-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.interval-ratios-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(34, 48, 74, .85);
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, .02);
+  color: var(--text);
+}
+
+.interval-ratios-toggle input {
+  margin: 0;
+}
+
+.interval-ratios-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex: 0 0 10px;
+}
+
+.interval-ratios-panel {
+  border: 1px solid rgba(34, 48, 74, .18);
+  border-radius: 18px;
+  background: #ffffff;
+  color: #1f2937;
+  padding: 18px;
+}
+
+.interval-ratios-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+
+.interval-ratios-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: #111827;
+}
+
+.interval-ratios-subtitle {
+  color: #4b5563;
+}
+
+.interval-ratios-chart {
+  display: grid;
+  gap: 14px;
+}
+
+.interval-ratios-row {
+  display: grid;
+  grid-template-columns: 130px minmax(0, 1fr) 120px;
+  gap: 12px;
+  align-items: center;
+}
+
+.interval-ratios-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.interval-ratios-bar-track {
+  position: relative;
+  height: 30px;
+  border-radius: 999px;
+  background: #eef2f7;
+  overflow: hidden;
+}
+
+.interval-ratios-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 999px;
+}
+
+.interval-ratios-bar-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.interval-ratios-value {
+  text-align: right;
+  font-weight: 700;
+  color: #111827;
+}
+
+.interval-ratios-footnote {
+  margin-top: 14px;
+  color: #4b5563;
+}
+
+@media (max-width: 720px) {
+  .interval-ratios-row {
+    grid-template-columns: 1fr;
+  }
+
+  .interval-ratios-value {
+    text-align: left;
+  }
+}
+
 .group-edit-metric-chip.is-selected {
   border-color: rgba(98, 220, 145, .85);
   background: rgba(71, 189, 120, .3);

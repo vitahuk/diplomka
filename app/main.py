@@ -136,7 +136,35 @@ def _read_session_events_df(csv_path: Path) -> pd.DataFrame:
         return df
 
     df["timestamp"] = df["timestamp"].astype(int)
-    return df.sort_values(by=["timestamp"], kind="stable")
+    df = df.sort_values(by=["timestamp"], kind="stable").reset_index(drop=True)
+
+    if "task" not in df.columns:
+        df["task"] = None
+
+    inferred_tasks: List[Optional[str]] = []
+    current_task: Optional[str] = None
+    for _, row in df.iterrows():
+        raw_task = row.get("task")
+        task = None if pd.isna(raw_task) else str(raw_task).strip() or None
+
+        if task:
+            current_task = task
+            inferred_tasks.append(task)
+            continue
+
+        event_name = str(row.get("event_name") or "").strip()
+        raw_detail = row.get("event_detail")
+        detail = None if pd.isna(raw_detail) else str(raw_detail).strip() or None
+
+        if event_name == "setting task" and detail:
+            current_task = detail
+            inferred_tasks.append(detail)
+            continue
+
+        inferred_tasks.append(current_task)
+
+    df["task"] = inferred_tasks
+    return df
 
 def _to_text_detail(value: Any) -> Optional[str]:
     if value is None or (isinstance(value, float) and pd.isna(value)):
@@ -304,6 +332,89 @@ def _build_task_start_offsets(events: List[Dict[str, Any]]) -> Dict[str, int]:
 
     return task_offsets
 
+INTERVAL_EVENT_NAME_MAP: Dict[str, str] = {
+    "MOVE": "move",
+    "ZOOM": "zoom",
+    "POPUP": "popup",
+}
+
+def _empty_interval_duration_bucket() -> Dict[str, int]:
+    return {event_key: 0 for event_key in INTERVAL_EVENT_NAME_MAP.values()}
+
+def _compute_interval_event_ratios(
+    timeline_items: List[Dict[str, Any]],
+    task_metrics: Dict[str, Dict[str, Any]],
+) -> Dict[str, Any]:
+    by_task_durations: Dict[str, Dict[str, int]] = {
+        str(task_id): _empty_interval_duration_bucket()
+        for task_id in task_metrics.keys()
+    }
+
+    for item in timeline_items:
+        if item.get("type") != "interval":
+            continue
+
+        raw_name = str(item.get("name") or "").strip().upper()
+        event_key = INTERVAL_EVENT_NAME_MAP.get(raw_name)
+        if not event_key:
+            continue
+
+        task_id = str(item.get("task") or "").strip()
+        if not task_id:
+            continue
+
+        if task_id not in by_task_durations:
+            by_task_durations[task_id] = _empty_interval_duration_bucket()
+
+        start_ts = int(item.get("startTs", 0))
+        end_ts = int(item.get("endTs", start_ts))
+        duration_ms = max(0, end_ts - start_ts)
+        by_task_durations[task_id][event_key] += duration_ms
+
+    by_task: Dict[str, Any] = {}
+    total_task_duration_ms = 0
+    all_tasks_durations = _empty_interval_duration_bucket()
+
+    for task_id, metrics in task_metrics.items():
+        task_id_str = str(task_id)
+        task_duration_ms = metrics.get("duration_ms")
+        task_duration_int = int(task_duration_ms) if isinstance(task_duration_ms, int) else 0
+        total_task_duration_ms += max(0, task_duration_int)
+
+        event_rows: Dict[str, Any] = {}
+        durations = by_task_durations.get(task_id_str, _empty_interval_duration_bucket())
+        for event_key, duration_ms in durations.items():
+            all_tasks_durations[event_key] += duration_ms
+            ratio = (duration_ms / task_duration_int) if task_duration_int > 0 else None
+            event_rows[event_key] = {
+                "duration_ms": duration_ms,
+                "ratio": ratio,
+            }
+
+        by_task[task_id_str] = {
+            "task_id": task_id_str,
+            "task_duration_ms": task_duration_int if task_duration_ms is not None else None,
+            "events": event_rows,
+        }
+
+    all_tasks_events: Dict[str, Any] = {}
+    for event_key, duration_ms in all_tasks_durations.items():
+        ratio = (duration_ms / total_task_duration_ms) if total_task_duration_ms > 0 else None
+        all_tasks_events[event_key] = {
+            "duration_ms": duration_ms,
+            "ratio": ratio,
+        }
+
+    return {
+        "event_order": list(INTERVAL_EVENT_NAME_MAP.values()),
+        "by_task": by_task,
+        "all_tasks": {
+            "task_id": "ALL_TASKS",
+            "task_duration_ms": total_task_duration_ms,
+            "events": all_tasks_events,
+        },
+    }
+
 def _read_csv_flexible(path: Path) -> pd.DataFrame:
     """
     Tries common delimiters (comma/tab/auto) to support slightly different CSV exports.
@@ -441,7 +552,6 @@ def _build_answers_eval_for_session(
             "coverage": coverage,
         },
     }
-
 
 def _ensure_session_answers_eval(session_data: SessionData) -> Dict[str, Any]:
     stats = session_data.stats if isinstance(session_data.stats, dict) else {}
@@ -656,6 +766,10 @@ async def upload_csv(
             "answers_by_task": answers_by_task,
             "answers_eval": answers_eval,
         }
+        stats["interval_event_ratios"] = _compute_interval_event_ratios(
+            _build_timeline_items_from_events_df(_read_session_events_df(dst)),
+            task_metrics,
+        )
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"CSV processing failed: {e}")
@@ -753,6 +867,11 @@ async def upload_bulk_csv(
                 "answers_by_task": answers_by_task,
                 "answers_eval": answers_eval,
             }
+
+            stats["interval_event_ratios"] = _compute_interval_event_ratios(
+                _build_timeline_items_from_events_df(_read_session_events_df(user_path)),
+                task_metrics,
+            )
 
             session_meta = SessionData(
                 session_id=parsed_session.session_id,
@@ -868,9 +987,24 @@ def get_session_answers_eval(session_id: str):
         **payload,
     }
 
+@app.get("/api/sessions/{session_id}/interval-event-ratios")
+def get_session_interval_event_ratios(session_id: str):
+    s = STORE.get(session_id)
+    if not s:
+        raise HTTPException(status_code=404, detail="Session not found.")
 
+    stats = s.stats if isinstance(s.stats, dict) else {}
+    payload = stats.get("interval_event_ratios") if isinstance(stats.get("interval_event_ratios"), dict) else None
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Interval event ratios not available for this session.")
 
-# ===== NEW: raw events for timeline =====
+    return {
+        "session_id": s.session_id,
+        "user_id": s.user_id,
+        "test_id": getattr(s, "test_id", "TEST") or "TEST",
+        **payload,
+    }
+
 @app.get("/api/sessions/{session_id}/events")
 def get_session_events(session_id: str):
     s = STORE.get(session_id)
