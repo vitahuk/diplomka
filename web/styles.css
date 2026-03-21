@@ -1127,14 +1127,6 @@ p {
   padding: 18px;
 }
 
-.interval-ratios-header {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: flex-start;
-  margin-bottom: 14px;
-}
-
 .interval-ratios-title {
   font-size: 18px;
   font-weight: 800;
@@ -1143,6 +1135,48 @@ p {
 
 .interval-ratios-subtitle {
   color: #4b5563;
+  margin-top: 4px;
+  margin-bottom: 14px;
+}
+
+.interval-ratios-summary {
+  border: 1px solid rgba(148, 163, 184, .35);
+  border-radius: 14px;
+  background: #f8fafc;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.interval-ratios-summary-label {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+.interval-ratios-summary-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.interval-ratios-summary-sub {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.interval-ratios-chart-card {
+  border: 1px solid rgba(203, 213, 225, .9);
+  border-radius: 16px;
+  background: #f8fafc;
+  padding: 16px;
+  color: #111827;
 }
 
 .interval-ratios-chart {

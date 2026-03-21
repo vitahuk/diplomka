@@ -108,6 +108,7 @@ const INTERVAL_EVENT_OPTIONS = [
   { key: "zoom", label: "Zoom", color: "#8B5CF6" },
   { key: "popup", label: "Popup", color: "#14B8A6" },
 ];
+const INTERVAL_OTHER_OPTION = { key: "other", label: "Other", color: "#94A3B8" };
 
 const TESTS_STORAGE_KEY = "maptrack_tests";
 const SELECTED_TEST_STORAGE_KEY = "maptrack_selected_test";
@@ -1590,17 +1591,18 @@ function renderIntervalRatiosModal() {
     `;
   } else {
     const visibleOptions = INTERVAL_EVENT_OPTIONS.filter((option) => selectedVisible.has(option.key));
-    if (!visibleOptions.length) {
-      contentEl.innerHTML = `
-        <div class="empty">
-          <div class="empty-title">No interval event selected</div>
-          <div class="muted small">Choose at least one of the interval event types above.</div>
-        </div>
-      `;
-    } else {
-      const scopeLabel = state.intervalRatiosSelection.taskKey === "ALL_TASKS" ? "All tasks" : state.intervalRatiosSelection.taskKey;
-      const taskDurationMs = safeNum(scopePayload.task_duration_ms);
-      const chartRows = visibleOptions.map((option) => {
+    const scopeLabel = state.intervalRatiosSelection.taskKey === "ALL_TASKS" ? "All tasks" : state.intervalRatiosSelection.taskKey;
+    const taskDurationMs = Math.max(0, safeNum(scopePayload.task_duration_ms) ?? 0);
+    const visibleDurationMs = visibleOptions.reduce((sum, option) => {
+      const durationMs = safeNum(scopePayload.events?.[option.key]?.duration_ms) ?? 0;
+      return sum + Math.max(0, durationMs);
+    }, 0);
+    const otherDurationMs = Math.max(0, taskDurationMs - visibleDurationMs);
+    const otherRatio = taskDurationMs > 0 ? (otherDurationMs / taskDurationMs) : 0;
+    const dominantBehavior = scopePayload?.dominant_behavior ?? null;
+
+    const chartRows = [
+      ...visibleOptions.map((option) => {
         const eventPayload = scopePayload.events?.[option.key] ?? {};
         const ratio = safeNum(eventPayload.ratio);
         const durationMs = safeNum(eventPayload.duration_ms) ?? 0;
@@ -1618,21 +1620,52 @@ function renderIntervalRatiosModal() {
             <div class="interval-ratios-value">${fmtMs(durationMs)}</div>
           </div>
         `;
-      }).join("");
+      }),
+      `
+        <div class="interval-ratios-row">
+          <div class="interval-ratios-label">
+            <span class="interval-ratios-dot" style="background:${INTERVAL_OTHER_OPTION.color};"></span>
+            <span>${escapeHtml(INTERVAL_OTHER_OPTION.label)}</span>
+          </div>
+          <div class="interval-ratios-bar-track">
+            <div class="interval-ratios-bar-fill" style="width:${Math.max(0, Math.min(100, otherRatio * 100))}%; background:${INTERVAL_OTHER_OPTION.color};"></div>
+            <div class="interval-ratios-bar-text">${fmtPercent(otherRatio)}</div>
+          </div>
+          <div class="interval-ratios-value">${fmtMs(otherDurationMs)}</div>
+        </div>
+      `,
+    ].join("");
+
+    const dominantBehaviorColor = (INTERVAL_EVENT_OPTIONS.find((option) => option.key === dominantBehavior?.event_key) ?? INTERVAL_OTHER_OPTION).color;
+
+    const dominantBehaviorMarkup = dominantBehavior?.event_key ? `
+      <div class="interval-ratios-summary">
+        <div class="interval-ratios-summary-label">Dominant behavior</div>
+        <div class="interval-ratios-summary-main">
+          <span class="interval-ratios-dot" style="background:${dominantBehaviorColor};"></span>
+          <span>${escapeHtml(dominantBehavior.label ?? dominantBehavior.event_key ?? "—")}</span>
+        </div>
+        <div class="interval-ratios-summary-sub">${fmtPercent(safeNum(dominantBehavior.ratio) ?? 0)} · ${fmtMs(safeNum(dominantBehavior.duration_ms) ?? 0)}</div>
+      </div>
+    ` : `
+      <div class="interval-ratios-summary">
+        <div class="interval-ratios-summary-label">Dominant behavior</div>
+        <div class="interval-ratios-summary-main">—</div>
+        <div class="interval-ratios-summary-sub">No MOVE / ZOOM / POPUP interval recorded for this scope.</div>
+      </div>
+    `;
 
       contentEl.innerHTML = `
-        <div class="interval-ratios-panel">
-          <div class="interval-ratios-header">
-            <div>
-              <div class="interval-ratios-title">${escapeHtml(scopeLabel)}</div>
-              <div class="interval-ratios-subtitle">100% = total completion time of the selected task scope (${fmtMs(taskDurationMs)}).</div>
-            </div>
-          </div>
+      <div class="interval-ratios-panel">
+        <div class="interval-ratios-title">${escapeHtml(scopeLabel)}</div>
+        <div class="interval-ratios-subtitle">100% = total completion time of the selected task scope (${fmtMs(taskDurationMs)}).</div>
+        ${dominantBehaviorMarkup}
+        <div class="interval-ratios-chart-card">
           <div class="interval-ratios-chart">${chartRows}</div>
-          <div class="interval-ratios-footnote">Right column shows summed interval duration exported for GazePlotter. Percentage = interval duration / total task time.</div>
         </div>
-      `;
-    }
+        <div class="interval-ratios-footnote">Right column shows summed duration. “Other” is the remaining task time that is not currently displayed in Move / Zoom / Popup, so the chart always sums to 100%.</div>
+      </div>
+    `;
   }
 
   taskSelect.onchange = () => {

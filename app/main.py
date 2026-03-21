@@ -524,6 +524,86 @@ INTERVAL_EVENT_NAME_MAP: Dict[str, str] = {
 def _empty_interval_duration_bucket() -> Dict[str, int]:
     return {event_key: 0 for event_key in INTERVAL_EVENT_NAME_MAP.values()}
 
+def _compute_dominant_behavior(events: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    dominant_key: Optional[str] = None
+    dominant_duration = -1
+
+    for event_key in INTERVAL_EVENT_NAME_MAP.values():
+        payload = events.get(event_key) if isinstance(events, dict) else {}
+        duration_ms = int(payload.get("duration_ms", 0)) if isinstance(payload, dict) else 0
+        if duration_ms > dominant_duration:
+            dominant_duration = duration_ms
+            dominant_key = event_key
+
+    if dominant_key is None or dominant_duration <= 0:
+        return None
+
+    payload = events.get(dominant_key) if isinstance(events, dict) else {}
+    ratio = payload.get("ratio") if isinstance(payload, dict) else None
+
+    return {
+        "event_key": dominant_key,
+        "label": dominant_key.capitalize(),
+        "duration_ms": dominant_duration,
+        "ratio": ratio,
+    }
+
+def _enrich_interval_ratio_scope(scope_payload: Dict[str, Any]) -> Dict[str, Any]:
+    events_payload = scope_payload.get("events") if isinstance(scope_payload.get("events"), dict) else {}
+    normalized_events: Dict[str, Any] = {}
+
+    for event_key in INTERVAL_EVENT_NAME_MAP.values():
+        event_row = events_payload.get(event_key) if isinstance(events_payload.get(event_key), dict) else {}
+        normalized_events[event_key] = {
+            "duration_ms": int(event_row.get("duration_ms", 0)) if event_row.get("duration_ms") is not None else 0,
+            "ratio": event_row.get("ratio"),
+        }
+
+    out = dict(scope_payload)
+    out["events"] = normalized_events
+    out["dominant_behavior"] = _compute_dominant_behavior(normalized_events)
+    return out
+
+def _normalize_interval_event_ratios_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    by_task_raw = payload.get("by_task") if isinstance(payload.get("by_task"), dict) else {}
+    all_tasks_raw = payload.get("all_tasks") if isinstance(payload.get("all_tasks"), dict) else {}
+
+    by_task: Dict[str, Any] = {}
+    for task_id, scope_payload in by_task_raw.items():
+        if not isinstance(scope_payload, dict):
+            continue
+        by_task[str(task_id)] = _enrich_interval_ratio_scope(scope_payload)
+
+    normalized_all_tasks = _enrich_interval_ratio_scope(all_tasks_raw) if all_tasks_raw else {
+        "task_id": "ALL_TASKS",
+        "task_duration_ms": 0,
+        "events": {
+            event_key: {"duration_ms": 0, "ratio": None}
+            for event_key in INTERVAL_EVENT_NAME_MAP.values()
+        },
+        "dominant_behavior": None,
+    }
+
+    return {
+        "event_order": list(INTERVAL_EVENT_NAME_MAP.values()),
+        "by_task": by_task,
+        "all_tasks": normalized_all_tasks,
+    }
+
+def _refresh_session_interval_event_ratios(session: SessionData, persist: bool = False) -> Optional[Dict[str, Any]]:
+    stats = session.stats if isinstance(session.stats, dict) else {}
+    payload = stats.get("interval_event_ratios") if isinstance(stats.get("interval_event_ratios"), dict) else None
+    if payload is None:
+        return None
+
+    normalized = _normalize_interval_event_ratios_payload(payload)
+    if normalized != payload:
+        stats["interval_event_ratios"] = normalized
+        session.stats = stats
+        if persist:
+            STORE.upsert(session)
+    return normalized
+
 def _compute_interval_event_ratios(
     timeline_items: List[Dict[str, Any]],
     task_metrics: Dict[str, Dict[str, Any]],
@@ -588,7 +668,7 @@ def _compute_interval_event_ratios(
             "ratio": ratio,
         }
 
-    return {
+    return _normalize_interval_event_ratios_payload({
         "event_order": list(INTERVAL_EVENT_NAME_MAP.values()),
         "by_task": by_task,
         "all_tasks": {
@@ -596,7 +676,7 @@ def _compute_interval_event_ratios(
             "task_duration_ms": total_task_duration_ms,
             "events": all_tasks_events,
         },
-    }
+    })
 
 def _read_csv_flexible(path: Path) -> pd.DataFrame:
     """
@@ -1176,6 +1256,7 @@ def list_sessions():
     out = []
     for s in sessions.values():
         _refresh_session_answers_eval(s, persist=True)
+        _refresh_session_interval_event_ratios(s, persist=True)
         stats = s.stats if isinstance(s.stats, dict) else {}
         session_stats = stats.get("session", {}) if isinstance(stats.get("session"), dict) else {}
 
@@ -1202,6 +1283,7 @@ def get_session(session_id: str):
         raise HTTPException(status_code=404, detail="Session not found.")
 
     _refresh_session_answers_eval(s, persist=True)
+    _refresh_session_interval_event_ratios(s, persist=True)
     stats = s.stats if isinstance(s.stats, dict) else {}
     task_metrics = stats.get("tasks", {}) if isinstance(stats.get("tasks"), dict) else {}
     tasks = list(task_metrics.keys())
@@ -1262,8 +1344,7 @@ def get_session_interval_event_ratios(session_id: str):
     if not s:
         raise HTTPException(status_code=404, detail="Session not found.")
 
-    stats = s.stats if isinstance(s.stats, dict) else {}
-    payload = stats.get("interval_event_ratios") if isinstance(stats.get("interval_event_ratios"), dict) else None
+    payload = _refresh_session_interval_event_ratios(s, persist=True)
     if payload is None:
         raise HTTPException(status_code=404, detail="Interval event ratios not available for this session.")
 
@@ -1628,6 +1709,7 @@ def api_list_groups(test_id: Optional[str] = None):
             if not session:
                 continue
             _refresh_session_answers_eval(session, persist=True)
+            _refresh_session_interval_event_ratios(session, persist=True)
             stats = session.stats if isinstance(session.stats, dict) else {}
             sessions_out.append({
                 "session_id": session.session_id,
