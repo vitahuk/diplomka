@@ -26,10 +26,53 @@ body {
   color: var(--text);
 }
 
+a {
+  color: inherit;
+}
+
 .app {
   min-height: 100vh;
   display: grid;
   grid-template-rows: auto 1fr;
+}
+
+.login-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.login-card {
+  width: min(460px, 100%);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 24px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 18px;
+}
+
+.login-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+}
+
+.login-copy {
+  display: grid;
+  gap: 8px;
+}
+
+.login-form {
+  display: grid;
+  gap: 14px;
+}
+
+.login-btn {
+  justify-content: center;
 }
 
 .topbar {

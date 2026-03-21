@@ -294,14 +294,56 @@ function loadGroupDraftSelectionForTest(testId) {
 }
 
 // ===== API =====
+
+function redirectToLogin() {
+  if (window.location.pathname !== "/login") {
+    window.location.assign("/login");
+  }
+}
+
+async function parseApiError(res) {
+  let err = {};
+  try { err = await res.json(); } catch { }
+  return err?.detail ?? res.statusText;
+}
+
+async function apiFetch(path, options = {}) {
+  const res = await fetch(path, options);
+  if (res.status === 401) {
+    redirectToLogin();
+    throw new Error("Unauthorized");
+  }
+  return res;
+}
+
 async function apiGet(path) {
-  const res = await fetch(path);
+  const res = await apiFetch(path);
   if (!res.ok) {
-    let err = {};
-    try { err = await res.json(); } catch { }
-    throw new Error(err.detail ?? res.statusText);
+    throw new Error(await parseApiError(res));
   }
   return res.json();
+}
+
+async function apiPostJson(path, payload = {}) {
+  const res = await apiFetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    throw new Error(await parseApiError(res));
+  }
+  return res.json();
+}
+
+async function apiLogout() {
+  try {
+    await apiPostJson("/api/auth/logout", {});
+  } catch (error) {
+    if (String(error?.message ?? error) !== "Unauthorized") {
+      throw error;
+    }
+  }
 }
 
 async function apiListTests() {
@@ -309,28 +351,16 @@ async function apiListTests() {
 }
 
 async function apiCreateTest(payload) {
-  const res = await fetch("/api/tests", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    let err = {};
-    try { err = await res.json(); } catch { }
-    throw new Error(err.detail ?? res.statusText);
-  }
-  return res.json();
+  return apiPostJson("/api/tests", payload);
 }
 
 async function apiUpload(file, testId) {
   const fd = new FormData();
   fd.append("file", file);
   fd.append("test_id", testId);
-  const res = await fetch("/api/upload", { method: "POST", body: fd });
+  const res = await apiFetch("/api/upload", { method: "POST", body: fd });
   if (!res.ok) {
-    let err = {};
-    try { err = await res.json(); } catch { }
-    throw new Error(err.detail ?? res.statusText);
+    throw new Error(await parseApiError(res));
   }
   return res.json();
 }
@@ -339,11 +369,9 @@ async function apiUploadBulk(file, testId) {
   const fd = new FormData();
   fd.append("file", file);
   fd.append("test_id", testId);
-  const res = await fetch("/api/upload/bulk", { method: "POST", body: fd });
+  const res = await apiFetch("/api/upload/bulk", { method: "POST", body: fd });
   if (!res.ok) {
-    let err = {};
-    try { err = await res.json(); } catch { }
-    throw new Error(err.detail ?? res.statusText);
+    throw new Error(await parseApiError(res));
   }
   return res.json();
 }
@@ -357,7 +385,7 @@ async function apiGetTestAnswers(testId) {
 }
 
 async function apiPutTestAnswer(testId, taskName, answerOrNull) {
-  const res = await fetch(
+  const res = await apiFetch(
     `/api/tests/${encodeURIComponent(testId)}/answers/${encodeURIComponent(taskName)}`,
     {
       method: "PUT",
@@ -367,9 +395,7 @@ async function apiPutTestAnswer(testId, taskName, answerOrNull) {
   );
 
   if (!res.ok) {
-    let err = {};
-    try { err = await res.json(); } catch { }
-    throw new Error(err.detail ?? res.statusText);
+    throw new Error(await parseApiError(res));
   }
   return res.json();
 }
@@ -385,38 +411,32 @@ function apiGetTestAnswersTemplateCsvUrl(testId) {
 async function apiUploadTestAnswersCsv(testId, file) {
   const fd = new FormData();
   fd.append("file", file);
-  const res = await fetch(`/api/tests/${encodeURIComponent(testId)}/answers/upload-csv`, {
+  const res = await apiFetch(`/api/tests/${encodeURIComponent(testId)}/answers/upload-csv`, {
     method: "POST",
     body: fd,
   });
   if (!res.ok) {
-    let err = {};
-    try { err = await res.json(); } catch { }
-    throw new Error(err.detail ?? res.statusText);
+    throw new Error(await parseApiError(res));
   }
   return res.json();
 }
 
 async function apiDeleteSessions(testId, sessionIds) {
-  const res = await fetch(`/api/tests/${encodeURIComponent(testId)}/sessions`, {
+  const res = await apiFetch(`/api/tests/${encodeURIComponent(testId)}/sessions`, {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ session_ids: sessionIds }),
   });
   if (!res.ok) {
-    let err = {};
-    try { err = await res.json(); } catch { }
-    throw new Error(err.detail ?? res.statusText);
+    throw new Error(await parseApiError(res));
   }
   return res.json();
 }
 
 async function apiDeleteAllSessions(testId) {
-  const res = await fetch(`/api/tests/${encodeURIComponent(testId)}/sessions/all`, { method: "DELETE" });
+  const res = await apiFetch(`/api/tests/${encodeURIComponent(testId)}/sessions/all`, { method: "DELETE" });
   if (!res.ok) {
-    let err = {};
-    try { err = await res.json(); } catch { }
-    throw new Error(err.detail ?? res.statusText);
+    throw new Error(await parseApiError(res));
   }
   return res.json();
 }
@@ -426,25 +446,21 @@ async function apiGetTestSettings(testId) {
 }
 
 async function apiUpdateTestSettings(testId, payload) {
-  const res = await fetch(`/api/tests/${encodeURIComponent(testId)}/settings`, {
+  const res = await apiFetch(`/api/tests/${encodeURIComponent(testId)}/settings`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
-    let err = {};
-    try { err = await res.json(); } catch { }
-    throw new Error(err.detail ?? res.statusText);
+    throw new Error(await parseApiError(res));
   }
   return res.json();
 }
 
 async function apiDeleteTest(testId) {
-  const res = await fetch(`/api/tests/${encodeURIComponent(testId)}`, { method: "DELETE" });
+  const res = await apiFetch(`/api/tests/${encodeURIComponent(testId)}`, { method: "DELETE" });
   if (!res.ok) {
-    let err = {};
-    try { err = await res.json(); } catch { }
-    throw new Error(err.detail ?? res.statusText);
+    throw new Error(await parseApiError(res));
   }
   return res.json();
 }
@@ -463,53 +479,37 @@ async function apiListGroups(testId) {
 }
 
 async function apiCreateGroup(payload) {
-  const res = await fetch("/api/groups", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) {
-    let err = {};
-    try { err = await res.json(); } catch { }
-    throw new Error(err.detail ?? res.statusText);
-  }
-  return res.json();
+  return apiPostJson("/api/groups", payload);
 }
 
 async function apiUpdateGroup(groupId, payload) {
-  const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}`, {
+  const res = await apiFetch(`/api/groups/${encodeURIComponent(groupId)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
-    let err = {};
-    try { err = await res.json(); } catch { }
-    throw new Error(err.detail ?? res.statusText);
+    throw new Error(await parseApiError(res));
   }
   return res.json();
 }
 
 async function apiUpdateGroupSettings(groupId, payload) {
-  const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}/settings`, {
+  const res = await apiFetch(`/api/groups/${encodeURIComponent(groupId)}/settings`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
-    let err = {};
-    try { err = await res.json(); } catch { }
-    throw new Error(err.detail ?? res.statusText);
+    throw new Error(await parseApiError(res));
   }
   return res.json();
 }
 
 async function apiDeleteGroup(groupId) {
-  const res = await fetch(`/api/groups/${encodeURIComponent(groupId)}`, { method: "DELETE" });
+  const res = await apiFetch(`/api/groups/${encodeURIComponent(groupId)}`, { method: "DELETE" });
   if (!res.ok) {
-    let err = {};
-    try { err = await res.json(); } catch { }
-    throw new Error(err.detail ?? res.statusText);
+    throw new Error(await parseApiError(res));
   }
   return res.json();
 }
@@ -528,15 +528,13 @@ function apiGetGroupExportCsvUrl(groupId) {
 }
 
 async function apiCompareWordcloud(groupIds, taskId = null) {
-  const res = await fetch(`/api/groups/compare/wordcloud`, {
+  const res = await apiFetch(`/api/groups/compare/wordcloud`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ group_ids: groupIds, task_id: taskId }),
   });
   if (!res.ok) {
-    let err = {};
-    try { err = await res.json(); } catch { }
-    throw new Error(err.detail ?? res.statusText);
+    throw new Error(await parseApiError(res));
   }
   return res.json();
 }
@@ -1132,11 +1130,9 @@ async function downloadSettingsAnswersCsv(kind = "answers") {
       ? apiGetTestAnswersTemplateCsvUrl(testId)
       : apiGetTestAnswersExportCsvUrl(testId);
 
-    const res = await fetch(url);
+    const res = await apiFetch(url);
     if (!res.ok) {
-      let err = {};
-      try { err = await res.json(); } catch { }
-      throw new Error(err.detail ?? res.statusText);
+      throw new Error(await parseApiError(res));
     }
 
     const blob = await res.blob();
@@ -2688,11 +2684,9 @@ async function exportTimelineCsvForSelectedSession() {
   }
 
   try {
-    const res = await fetch(apiGetSessionEventsExportUrl(s.session_id));
+    const res = await apiFetch(apiGetSessionEventsExportUrl(s.session_id));
     if (!res.ok) {
-      let err = {};
-      try { err = await res.json(); } catch { }
-      throw new Error(err.detail ?? res.statusText);
+      throw new Error(await parseApiError(res));
     }
 
     const blob = await res.blob();
@@ -4751,11 +4745,9 @@ async function exportCurrentGroupCsv() {
   }
 
   try {
-    const res = await fetch(apiGetGroupExportCsvUrl(group.id));
+    const res = await apiFetch(apiGetGroupExportCsvUrl(group.id));
     if (!res.ok) {
-      let err = {};
-      try { err = await res.json(); } catch { }
-      throw new Error(err.detail ?? res.statusText);
+      throw new Error(await parseApiError(res));
     }
 
     const blob = await res.blob();
@@ -5092,6 +5084,24 @@ async function refreshSessions() {
 }
 
 // ===== Events wiring =====
+
+function resetClientStateForLogout() {
+  state.selectedTestId = "TEST";
+  state.selectedSessionId = null;
+  state.selectedSession = null;
+  state.selectedSessionIds = [];
+  state.sessions = [];
+  state.tests = [];
+  state.groups = [];
+  state.correctAnswers = {};
+  state.groupSettings = {};
+  state.testSettings = {};
+
+  try { localStorage.removeItem(TESTS_STORAGE_KEY); } catch { /* ignore */ }
+  try { localStorage.removeItem(SELECTED_TEST_STORAGE_KEY); } catch { /* ignore */ }
+  try { localStorage.removeItem(GROUP_DRAFT_SELECTION_KEY); } catch { /* ignore */ }
+}
+
 function wireNavButtons() {
   $("#backToTestsBtn")?.addEventListener("click", () => {
     setPage("dashboard");
@@ -5150,6 +5160,28 @@ function wireNavButtons() {
   $("#groupsSearchInput")?.addEventListener("input", (e) => {
     state.groupsSearchQuery = e.target?.value ?? "";
     renderGroupsPage();
+  });
+
+  $("#logoutBtn")?.addEventListener("click", async () => {
+    const btn = $("#logoutBtn");
+    const originalLabel = btn?.textContent;
+    try {
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Logging out…";
+      }
+      await apiLogout();
+    } catch (error) {
+      window.alert(`Logout failed: ${error?.message ?? error}`);
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = originalLabel || "Logout";
+      }
+      return;
+    }
+
+    resetClientStateForLogout();
+    redirectToLogin();
   });
 
   $("#toggleGroupUsersBtn")?.addEventListener("click", () => {

@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Login | App without a name (for now)</title>
+  <link rel="stylesheet" href="/static/styles.css?v=34" />
+</head>
+
+<body>
+  <main class="login-page">
+    <section class="login-card">
+      <div class="login-brand">
+        <span class="brand-dot"></span>
+        <span>App without a name (for now)</span>
+      </div>
+      <div class="login-copy">
+        <h1>LOGIN</h1>
+        <p class="muted">All application operations are password protected. After login, the browser will remain authenticated for 2 hours.</p>
+      </div>
+
+      <form id="loginForm" class="login-form">
+        <label class="filter-field">
+          <span>Password</span>
+          <input id="passwordInput" type="password" name="password" autocomplete="current-password" required />
+        </label>
+        <button id="loginBtn" class="btn login-btn" type="submit">Login</button>
+      </form>
+
+      <div id="loginStatus" class="muted small">—</div>
+    </section>
+  </main>
+
+  <script>
+    async function redirectIfAuthenticated() {
+      try {
+        const res = await fetch("/api/auth/me");
+        if (res.ok) {
+          window.location.replace("/");
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    async function submitLogin(event) {
+      event.preventDefault();
+
+      const passwordEl = document.getElementById("passwordInput");
+      const statusEl = document.getElementById("loginStatus");
+      const btn = document.getElementById("loginBtn");
+      const password = passwordEl?.value ?? "";
+
+      if (!password.trim()) {
+        if (statusEl) statusEl.textContent = "Please enter your password.";
+        return;
+      }
+
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Logging in…";
+      }
+      if (statusEl) statusEl.textContent = "Verifying access…";
+
+      try {
+        const res = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password }),
+        });
+
+        if (!res.ok) {
+          let err = {};
+          try { err = await res.json(); } catch { }
+          throw new Error(err.detail ?? res.statusText);
+        }
+
+        window.location.replace("/");
+      } catch (error) {
+        if (statusEl) statusEl.textContent = `Login failed: ${error?.message ?? error}`;
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "Login";
+        }
+      }
+    }
+
+    document.getElementById("loginForm")?.addEventListener("submit", submitLogin);
+    redirectIfAuthenticated();
+  </script>
+</body>
+
+</html>

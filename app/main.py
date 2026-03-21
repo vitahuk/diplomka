@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from fastapi import FastAPI, UploadFile, File, HTTPException, Form
-from fastapi.responses import FileResponse, Response
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form, Request
+from fastapi.responses import FileResponse, Response, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi import Body
 
@@ -12,6 +12,11 @@ import unicodedata
 from collections import Counter
 from io import StringIO
 import shutil
+import time
+import hmac
+import hashlib
+import base64
+import json
 from typing import Any, Dict, Optional, List
 from uuid import uuid4
 from difflib import SequenceMatcher
@@ -20,7 +25,15 @@ import csv
 import pandas as pd
 
 from app.storage import STORE, SessionData
-from app.config import WEB_DIR, UPLOAD_DIR
+from app.config import (
+    WEB_DIR,
+    UPLOAD_DIR,
+    LOGIN_PASSWORD,
+    SESSION_SECRET,
+    SESSION_DURATION_HOURS,
+    SESSION_DURATION_SECONDS,
+    SESSION_COOKIE_SECURE,
+)
 from app.storage import get_test_answers, set_test_answer, list_test_tasks, set_test_answers_bulk
 from app.storage import list_groups, upsert_group, delete_sessions, delete_all_sessions_for_test
 from app.storage import get_test_settings, update_test_settings, delete_test, update_group_settings, delete_group
@@ -50,9 +63,155 @@ app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
 UPLOAD_JOBS: Dict[str, Dict[str, Any]] = {}
 UPLOAD_JOBS_LOCK = threading.Lock()
 
+AUTH_COOKIE_NAME = "diplomka_auth"
+AUTH_EXEMPT_PATHS = {
+    "/login",
+    "/api/auth/login",
+}
+
+
+def _is_auth_exempt_path(path: str) -> bool:
+    if path.startswith("/static/"):
+        return True
+    return path in AUTH_EXEMPT_PATHS
+
+
+def _base64url_encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("utf-8").rstrip("=")
+
+
+def _base64url_decode(raw: str) -> bytes:
+    padding = "=" * (-len(raw) % 4)
+    return base64.urlsafe_b64decode(raw + padding)
+
+
+def _build_auth_cookie(auth_until: int) -> str:
+    payload = {"auth_until": int(auth_until)}
+    payload_json = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    payload_b64 = _base64url_encode(payload_json)
+    signature = hmac.new(SESSION_SECRET.encode("utf-8"), payload_b64.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{payload_b64}.{signature}"
+
+
+def _read_auth_payload(request: Request) -> Optional[Dict[str, Any]]:
+    raw_cookie = request.cookies.get(AUTH_COOKIE_NAME)
+    if not raw_cookie or "." not in raw_cookie:
+        return None
+
+    payload_b64, signature = raw_cookie.rsplit(".", 1)
+    expected_signature = hmac.new(
+        SESSION_SECRET.encode("utf-8"),
+        payload_b64.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(signature, expected_signature):
+        return None
+
+    try:
+        payload = json.loads(_base64url_decode(payload_b64).decode("utf-8"))
+    except Exception:
+        return None
+
+    if not isinstance(payload, dict):
+        return None
+    return payload
+
+
+def _get_auth_until(request: Request) -> Optional[int]:
+    payload = _read_auth_payload(request)
+    auth_until = payload.get("auth_until") if isinstance(payload, dict) else None
+    return auth_until if isinstance(auth_until, int) else None
+
+
+def _is_authenticated(request: Request) -> bool:
+    auth_until = _get_auth_until(request)
+    if auth_until is None:
+        return False
+    return auth_until > int(time.time())
+
+
+def _clear_auth_cookie(response: Response) -> None:
+    response.delete_cookie(AUTH_COOKIE_NAME)
+
+
+def _set_auth_cookie(response: Response, auth_until: int) -> None:
+    response.set_cookie(
+        key=AUTH_COOKIE_NAME,
+        value=_build_auth_cookie(auth_until),
+        max_age=SESSION_DURATION_SECONDS,
+        httponly=True,
+        samesite="lax",
+        secure=SESSION_COOKIE_SECURE,
+        path="/",
+    )
+
+
+def _unauthorized_response(path: str) -> Response:
+    if path.startswith("/api/"):
+        response: Response = JSONResponse(status_code=401, content={"detail": "Unauthorized"})
+    else:
+        response = RedirectResponse(url="/login", status_code=303)
+    _clear_auth_cookie(response)
+    return response
+
+
+@app.middleware("http")
+async def require_login(request: Request, call_next):
+    path = request.url.path
+    if _is_auth_exempt_path(path):
+        return await call_next(request)
+
+    if _is_authenticated(request):
+        return await call_next(request)
+
+    return _unauthorized_response(path)
+
 @app.get("/")
 def index():
     return FileResponse(str(WEB_DIR / "index.html"))
+
+
+@app.get("/login")
+def login_page(request: Request):
+    if _is_authenticated(request):
+        return RedirectResponse(url="/", status_code=303)
+    return FileResponse(str(WEB_DIR / "login.html"))
+
+
+@app.get("/api/auth/me")
+def auth_me(request: Request):
+    if not _is_authenticated(request):
+        return _unauthorized_response("/api/auth/me")
+
+    auth_until = int(_get_auth_until(request) or 0)
+    return {
+        "authenticated": True,
+        "expires_at": auth_until,
+        "session_duration_hours": SESSION_DURATION_HOURS,
+    }
+
+
+@app.post("/api/auth/login")
+async def auth_login(payload: dict = Body(...)):
+    password = str(payload.get("password") or "")
+    if not hmac.compare_digest(password, LOGIN_PASSWORD):
+        raise HTTPException(status_code=401, detail="Invalid password.")
+
+    auth_until = int(time.time()) + SESSION_DURATION_SECONDS
+    response = JSONResponse(content={
+        "ok": True,
+        "expires_at": auth_until,
+        "session_duration_hours": SESSION_DURATION_HOURS,
+    })
+    _set_auth_cookie(response, auth_until)
+    return response
+
+
+@app.post("/api/auth/logout")
+def auth_logout():
+    response = JSONResponse(content={"ok": True})
+    _clear_auth_cookie(response)
+    return response
 
 
 # =========================
