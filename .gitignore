@@ -9,3 +9,8 @@ data/uploads/
 
 # OS
 .DS_Store
+
+# TXT
+.server_spusteni.txt
+.dalsi_postup.txt
+

@@ -12,9 +12,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship,
 from sqlalchemy.types import JSON
 from sqlalchemy.schema import ForeignKey
 
-BASE_DIR = Path(__file__).resolve().parents[1]
-DATA_DIR = BASE_DIR / "data"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
+from app.config import DATA_DIR, DB_PATH, UPLOAD_DIR
 
 TEST_ANSWERS_FILE = DATA_DIR / "test_answers.json"
 GROUPS_FILE = DATA_DIR / "groups.json"
@@ -122,8 +120,7 @@ def _build_database_url() -> str:
     configured_url = os.getenv("DATABASE_URL")
     if configured_url:
         return configured_url
-    sqlite_path = DATA_DIR / "app.db"
-    return f"sqlite:///{sqlite_path}"
+    return f"sqlite:///{DB_PATH}"
 
 
 DATABASE_URL = _build_database_url()
@@ -409,9 +406,8 @@ def delete_all_sessions_for_test(test_id: str) -> int:
     return STORE.delete_all_sessions_for_test(test_id=test_id)
 
 def ensure_upload_dir() -> Path:
-    p = Path("data/uploads")
-    p.mkdir(parents=True, exist_ok=True)
-    return p
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    return UPLOAD_DIR
 
 
 def get_test_answers(test_id: str) -> Dict[str, str]:

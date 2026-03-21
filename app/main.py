@@ -18,7 +18,8 @@ from difflib import SequenceMatcher
 import csv
 import pandas as pd
 
-from app.storage import STORE, SessionData, ensure_upload_dir
+from app.storage import STORE, SessionData
+from app.config import WEB_DIR, UPLOAD_DIR
 from app.storage import get_test_answers, set_test_answer, list_test_tasks, set_test_answers_bulk
 from app.storage import list_groups, upsert_group, delete_sessions, delete_all_sessions_for_test
 from app.storage import get_test_settings, update_test_settings, delete_test, update_group_settings, delete_group
@@ -42,15 +43,6 @@ from app.analysis.metrics import (
 from app.normalization.nationality import normalize_nationality
 
 app = FastAPI(title="MapTrack Analytics (MVP)")
-
-# --- Robust absolute paths (prevents slow/buggy relative FS issues) ---
-BASE_DIR = Path(__file__).resolve().parents[1]
-WEB_DIR = BASE_DIR / "web"
-
-# Static UI
-BASE_DIR = Path(__file__).resolve().parents[1]
-WEB_DIR = BASE_DIR / "web"
-UPLOAD_DIR = BASE_DIR / "data" / "uploads"
 
 app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
 
