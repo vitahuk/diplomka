@@ -4659,17 +4659,57 @@ function renderGroupSocioStats(group) {
   `;
 }
 
-function renderMiniWordcloud(words = []) {
-  if (!Array.isArray(words) || !words.length) {
-    return `<div class="muted small">No answer data available yet.</div>`;
+function buildWordcloudMeta(words = []) {
+  const normalized = Array.isArray(words)
+    ? words
+        .map((word) => ({
+          text: String(word?.text ?? "").trim(),
+          count: Math.max(0, Number(word?.count) || 0),
+        }))
+        .filter((word) => word.text && word.count > 0)
+    : [];
+
+  const total = normalized.reduce((sum, word) => sum + word.count, 0);
+  const top = normalized[0] ?? null;
+  return {
+    words: normalized,
+    total,
+    unique: normalized.length,
+    top,
+  };
+}
+
+function renderMiniWordcloud(words = [], options = {}) {
+  const meta = buildWordcloudMeta(words);
+  if (!meta.words.length) {
+    return `<div class="wordcloud-empty muted small">No answer data available yet.</div>`;
   }
-  const max = Math.max(...words.map((w) => Number(w.count) || 1), 1);
-  return `<div class="wordcloud">${words.slice(0, 60).map((w) => {
-    const count = Number(w.count) || 1;
-    const ratio = count / max;
-    const size = 12 + Math.round(ratio * 22);
-    return `<span class="word" style="font-size:${size}px" title="${escapeHtml(String(count))}">${escapeHtml(w.text)}</span>`;
-  }).join(" ")}</div>`;
+  const variant = options.variant === "comparison" ? "comparison" : "default";
+  const showMeta = options.showMeta !== false;
+  const max = Math.max(...meta.words.map((w) => w.count), 1);
+  const palette = ["#2f2a84", "#4b2fa6", "#7b35a7", "#b13b93", "#e56d6f", "#f0b24d"];
+  const wordsHtml = meta.words.slice(0, 42).map((w, index) => {
+    const ratio = w.count / max;
+    const size = 14 + Math.round(Math.pow(ratio, 0.78) * (variant === "comparison" ? 34 : 42));
+    const rotate = ratio > 0.8 ? 0 : (((index % 5) - 2) * (variant === "comparison" ? 3 : 4));
+    const color = palette[index % palette.length];
+    return `<span class="word word-tier-${Math.min(5, Math.max(1, Math.ceil(ratio * 5)))}" style="--size:${size}px; --rotate:${rotate}deg; --color:${color};" title="${escapeHtml(`${w.text} (${w.count})`)}">${escapeHtml(w.text)}</span>`;
+  }).join("");
+
+  const metaChips = showMeta ? [
+    `<span class="wordcloud-chip">Responses <b>${escapeHtml(String(meta.total))}</b></span>`,
+    `<span class="wordcloud-chip">Unique <b>${escapeHtml(String(meta.unique))}</b></span>`,
+    meta.top ? `<span class="wordcloud-chip">Top <b>${escapeHtml(meta.top.text)}</b></span>` : "",
+  ].filter(Boolean).join("") : "";
+
+  return `
+    <div class="wordcloud-shell wordcloud-shell--${variant}">
+      ${showMeta ? `<div class="wordcloud-meta">${metaChips}</div>` : ""}
+      <div class="wordcloud-surface">
+        <div class="wordcloud wordcloud--${variant}">${wordsHtml}</div>
+      </div>
+    </div>
+  `;
 }
 
 async function renderGroupAnswersAndWordcloud(group) {
@@ -4756,34 +4796,37 @@ function renderGroupCompareAnswersTab(groups) {
     const grid = $("#groupsCompareWordcloudGrid");
     if (!grid) return;
 
-    const summaries = groupAnswers.filter(Boolean).map((payload, idx) => {
-      const acc = Number(payload?.summary?.accuracy);
-      return {
-        groupId: groups[idx]?.id,
-        groupName: groups[idx]?.name ?? groups[idx]?.id,
-        accuracy: Number.isFinite(acc) ? acc : null,
-      };
-    });
-
-    const validAcc = summaries.map((s) => s.accuracy).filter((v) => Number.isFinite(v));
-    const globalAcc = validAcc.length ? validAcc.reduce((a, b) => a + b, 0) / validAcc.length : null;
-
     const byId = new Map((res?.groups ?? []).map((g) => [g.group_id, g.words ?? []]));
-        const statsHtml = `
-      <div class="card" style="padding:10px; margin-bottom:10px;">
-        <div class="title">Average correctness</div>
-        <div class="muted small" style="margin-top:6px;">Overall: <b>${escapeHtml(fmtPercent(globalAcc))}</b></div>
-        <div class="muted small" style="margin-top:4px;">${summaries.map((s) => `${escapeHtml(s.groupName)}: ${escapeHtml(fmtPercent(s.accuracy))}`).join(" · ")}</div>
-      </div>
-    `;
 
-    grid.innerHTML = statsHtml + groups.map((group) => `
-      <div class="card" style="padding:10px;">
-        <div class="title">${escapeHtml(group.name ?? group.id)}</div>
-        <div class="muted small" style="margin-bottom:6px;">${escapeHtml(group.id)}</div>
-        ${renderMiniWordcloud(byId.get(group.id) ?? [])}
-      </div>
-    `).join("");
+    grid.innerHTML = groups.map((group, idx) => {
+      const payload = groupAnswers[idx];
+      const taskRecord = taskId ? payload?.tasks?.[taskId] : null;
+      const overallAcc = Number(payload?.summary?.accuracy);
+      const taskAcc = Number(taskRecord?.accuracy);
+      const taskCorrect = Number(taskRecord?.correct_count);
+      const taskTotal = Number(taskRecord?.total_count);
+      const groupWords = byId.get(group.id) ?? [];
+      const groupMeta = buildWordcloudMeta(groupWords);
+      const taskBadge = Number.isFinite(taskAcc)
+        ? `${fmtPercent(taskAcc)}${Number.isFinite(taskCorrect) && Number.isFinite(taskTotal) ? ` · ${taskCorrect}/${taskTotal}` : ""}`
+        : "—";
+      return `
+        <article class="card wordcloud-compare-card">
+          <div class="wordcloud-card-head">
+            <div>
+              <div class="title">${escapeHtml(group.name ?? group.id)}</div>
+            </div>
+            <div class="wordcloud-card-badges">
+            <span class="wordcloud-badge">Overall correctness <b>${escapeHtml(fmtPercent(overallAcc))}</b></span>
+              <span class="wordcloud-badge">Task correctness <b>${escapeHtml(taskBadge)}</b></span>
+              <span class="wordcloud-badge">Responses <b>${escapeHtml(String(groupMeta.total))}</b></span>
+              <span class="wordcloud-badge">Unique <b>${escapeHtml(String(groupMeta.unique))}</b></span>
+            </div>
+          </div>
+          ${renderMiniWordcloud(groupWords, { variant: "comparison", showMeta: false })}
+        </article>
+      `;
+    }).join("");
   };
 
   load().catch((e) => {
