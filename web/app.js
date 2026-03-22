@@ -13,6 +13,8 @@ function setPage(pageId) {
   hide($("#view-groups"));
   hide($("#view-group-edit"));
   show($(`#view-${pageId}`));
+  state.currentPage = pageId;
+  updateBreadcrumbs();
 }
 
 function fmtMs(ms) {
@@ -122,6 +124,7 @@ const GROUP_DRAFT_SELECTION_KEY = "maptrack_group_selection";
 
 // ===== App State =====
 const state = {
+  currentPage: "dashboard",
   selectedTestId: "TEST",
   selectedSessionId: null,
   selectedSession: null,
@@ -696,24 +699,33 @@ function renderTestAggMetrics() {
   const el = $("#testAggMetrics");
   if (!el) return;
 
-  const sessions = getSessionsForSelectedTest();
-
-  if (!sessions.length) {
+  if (!state.selectedTestId) {
     el.innerHTML = `
       <div class="empty">
-        <div class="empty-title">No data yet</div>
+        <div class="empty-title">No user experiment selected</div>
         <div class="muted small">
-          Upload one or more sessions (CSV). The number of sessions in the experiment will then be shown here.
+          Please select a user experiment to view its metrics.
         </div>
       </div>
     `;
     return;
   }
 
-  renderMetricGrid(
-    { "Number of sessions in the user experiment": sessions.length },
-    el
-  );
+  const sessions = getSessionsForSelectedTest();
+  const note = String(state.testSettings?.[state.selectedTestId]?.note ?? "").trim();
+
+  el.innerHTML = `
+    <div class="metric-grid">
+      <div class="metric">
+        <div class="k">Number of sessions in the user experiment</div>
+        <div class="v">${escapeHtml(String(sessions.length))}</div>
+      </div>
+      <div class="metric metric-full">
+        <div class="k">Note</div>
+        <div class="metric-note-box">${note ? escapeHtml(note) : "—"}</div>
+      </div>
+    </div>
+  `;
 }
 
 // ===== Sessions list page =====
@@ -1508,6 +1520,8 @@ async function saveUserTestSettings() {
     state.testSettings[updatedTestId] = { name: String(out?.name ?? ""), note: String(out?.note ?? "") };
     renderTestsList();
     renderSettingsPage();
+    renderTestAggMetrics();
+    updateBreadcrumbs();
     if (statusEl) {
       statusEl.textContent = updatedTestId === previousTestId
         ? "Saved."
@@ -2085,7 +2099,10 @@ async function openTaskModal(taskId) {
   clearTaskMapData();
   syncTaskMapLegend();
   if (state.taskMap.leafletMap) {
-    setTimeout(() => state.taskMap.leafletMap.invalidateSize(), 50);
+    setTimeout(() => {
+      state.taskMap.leafletMap.invalidateSize();
+      fitTaskMapToRenderedData();
+    }, 50);
   }
 
   if (!s?.session_id) {
@@ -2323,10 +2340,15 @@ function renderTaskSpatialTraceToMap(spatialPayload) {
   clearTaskMapData();
 
   const spatial = spatialPayload?.spatial ?? { track: { points: [] }, popups: [] };
-  state.taskMap.pointsLayer?.addData?.(buildPointsFeatureCollection(spatial));
-  state.taskMap.trajectoryLayer?.addData?.(buildTrackFeatureCollection(spatial));
-  state.taskMap.trajectoryPointsLayer?.addData?.(buildTrackPointFeatureCollection(spatial));
-  state.taskMap.endpointLayer?.addData?.(buildEndpointFeatureCollection(spatial));
+  const pointsGeoJson = buildPointsFeatureCollection(spatial);
+  const trackGeoJson = buildTrackFeatureCollection(spatial);
+  const trackPointsGeoJson = buildTrackPointFeatureCollection(spatial);
+  const endpointGeoJson = buildEndpointFeatureCollection(spatial);
+
+  state.taskMap.pointsLayer?.addData?.(pointsGeoJson);
+  state.taskMap.trajectoryLayer?.addData?.(trackGeoJson);
+  state.taskMap.trajectoryPointsLayer?.addData?.(trackPointsGeoJson);
+  state.taskMap.endpointLayer?.addData?.(endpointGeoJson);
 
   state.taskMap.viewportRectangles = [];
   const viewportLayer = state.taskMap.viewportLayer;
@@ -2372,15 +2394,18 @@ function renderTaskSpatialTraceToMap(spatialPayload) {
 
   applyTaskMapLayerStyles();
   fitTaskMapToRenderedData();
+  if (state.taskMap.leafletMap) {
+    setTimeout(() => {
+      state.taskMap.leafletMap.invalidateSize();
+      fitTaskMapToRenderedData();
+    }, 0);
+  }
 
-  const pointCount = Array.isArray(spatial?.popups) ? spatial.popups.length : 0;
-  const trackCount = Array.isArray(spatial?.track?.points) ? spatial.track.points.length : 0;
-  const viewportCount = Array.isArray(spatial?.track?.samples)
-    ? spatial.track.samples.filter((p) => Array.isArray(p?.viewportBounds)).length
-    : 0;
-  const endpoints = spatial?.movementEndpoints ?? {};
-  const endpointCount = (endpoints?.start ? 1 : 0) + (endpoints?.end ? 1 : 0);
-  setTaskMapPlaceholderStatus({ title: "Data loaded", detail: `Points (pop-ups): ${pointCount} · Trajectory: ${trackCount} · Start/End: ${endpointCount} · Viewports: ${viewportCount}` });
+  const pointCount = pointsGeoJson.features.length;
+  const trackPointCount = trackPointsGeoJson.features.length;
+  const viewportCount = trackPointsGeoJson.features.filter((feature) => Array.isArray(feature?.properties?.viewportBounds)).length;
+  const endpointCount = endpointGeoJson.features.length;
+  setTaskMapPlaceholderStatus({ title: "Data loaded", detail: `Points (pop-ups): ${pointCount} · Trajectory points: ${trackPointCount} · Start/End: ${endpointCount} · Viewports: ${viewportCount}` });
 }
 
 async function loadTaskSpatialTraceIntoMap(sessionId, taskId) {
@@ -2400,7 +2425,10 @@ function renderTaskModalTabs() {
   });
 
   if (state.taskModalTab === "map" && state.taskMap.leafletMap) {
-    setTimeout(() => state.taskMap.leafletMap.invalidateSize(), 50);
+    setTimeout(() => {
+      state.taskMap.leafletMap.invalidateSize();
+      fitTaskMapToRenderedData();
+    }, 50);
   }
 }
 
@@ -3224,14 +3252,23 @@ function buildPointsFeatureCollection(spatial) {
 
 function buildTrackFeatureCollection(spatial) {
   const points = Array.isArray(spatial?.track?.points) ? spatial.track.points : [];
-  if (points.length < 2) {
-    return { type: "FeatureCollection", features: [] };
-  }
-
   const coordinates = points
     .filter((xy) => Array.isArray(xy) && xy.length >= 2)
     .map((xy) => [Number(xy[1]), Number(xy[0])])
     .filter((xy) => Number.isFinite(xy[0]) && Number.isFinite(xy[1]));
+
+  const endPoint = spatial?.movementEndpoints?.end;
+  const endCoordinate = Number.isFinite(Number(endPoint?.lon)) && Number.isFinite(Number(endPoint?.lat))
+    ? [Number(endPoint.lon), Number(endPoint.lat)]
+    : null;
+
+  if (endCoordinate) {
+    const lastCoordinate = coordinates[coordinates.length - 1] ?? null;
+    const shouldAppendEndPoint = !lastCoordinate
+      || Math.abs(lastCoordinate[0] - endCoordinate[0]) >= 1e-6
+      || Math.abs(lastCoordinate[1] - endCoordinate[1]) >= 1e-6;
+    if (shouldAppendEndPoint) coordinates.push(endCoordinate);
+  }
 
   if (coordinates.length < 2) {
     return { type: "FeatureCollection", features: [] };
@@ -3425,16 +3462,13 @@ function renderSpatialTraceToMap(spatialPayload) {
   applyMapLayerStyles();
   fitMapToRenderedData();
 
-  const pointCount = Array.isArray(spatial?.popups) ? spatial.popups.length : 0;
-  const trackCount = Array.isArray(spatial?.track?.points) ? spatial.track.points.length : 0;
-  const viewportCount = Array.isArray(spatial?.track?.samples)
-    ? spatial.track.samples.filter((p) => Array.isArray(p?.viewportBounds)).length
-    : 0;
-  const endpoints = spatial?.movementEndpoints ?? {};
-  const endpointCount = (endpoints?.start ? 1 : 0) + (endpoints?.end ? 1 : 0);
+  const pointCount = pointsGeoJson.features.length;
+  const trackPointCount = trackPointsGeoJson.features.length;
+  const viewportCount = trackPointsGeoJson.features.filter((feature) => Array.isArray(feature?.properties?.viewportBounds)).length;
+  const endpointCount = endpointGeoJson.features.length;
   setMapPlaceholderStatus({
     title: "Data loaded",
-    detail: `Points (pop-ups): ${pointCount} · Trajectory points: ${trackCount} · Start/End: ${endpointCount} · Viewports: ${viewportCount}`,
+    detail: `Points (pop-ups): ${pointCount} · Trajectory points: ${trackPointCount} · Start/End: ${endpointCount} · Viewports: ${viewportCount}`,
   });
 }
 
@@ -3715,6 +3749,7 @@ async function refreshGroups() {
   if (!state.selectedGroupId && state.groups.length) {
     state.selectedGroupId = state.groups[0].id;
   }
+  updateBreadcrumbs();
 }
 
 function getSelectedGroup() {
@@ -4816,6 +4851,7 @@ function renderGroupsPage() {
   $$("#groupsList .list-item").forEach((item) => {
     item.addEventListener("click", () => {
       state.selectedGroupId = item.dataset.group;
+      updateBreadcrumbs();
       renderGroupsPage();
     });
   });
@@ -5432,22 +5468,72 @@ async function deleteCurrentGroup() {
 
 
 // ===== Selection + Breadcrumbs =====
+function getBreadcrumbState() {
+  const currentPage = state.currentPage ?? "dashboard";
+  const detailSessionLabel = state.selectedSession?.user_id
+    ? `${state.selectedSession.user_id} (${state.selectedSessionId ?? "—"})`
+    : (state.selectedSessionId ?? null);
+  const detailGroupLabel = getSelectedGroup()?.name ?? state.selectedGroupId ?? null;
+
+  const breadcrumb = {
+    root: { label: "Dashboard", disabled: currentPage === "dashboard" },
+    test: state.selectedTestId
+      ? {
+          label: getCurrentTestDisplayName() || state.selectedTestId,
+          disabled: currentPage === "dashboard" || currentPage === "settings",
+        }
+      : null,
+    section: null,
+    detail: null,
+  };
+
+  if (currentPage === "individual" || currentPage === "group") {
+    breadcrumb.section = { label: "Sessions", disabled: currentPage === "individual" };
+    if (detailSessionLabel) breadcrumb.detail = { label: detailSessionLabel, disabled: currentPage === "group" };
+  } else if (currentPage === "groups" || currentPage === "group-edit") {
+    breadcrumb.section = { label: "Groups", disabled: currentPage === "groups" };
+    if (detailGroupLabel) breadcrumb.detail = { label: detailGroupLabel, disabled: currentPage === "groups" };
+  }
+
+  return breadcrumb;
+}
+
 function updateBreadcrumbs() {
+  const rootEl = $("#crumb-root");
   const testEl = $("#crumb-test");
-  const sessionEl = $("#crumb-session");
+  const sectionEl = $("#crumb-section");
+  const detailEl = $("#crumb-detail");
+  const testSepEl = $("#crumb-test-sep");
+  const sectionSepEl = $("#crumb-section-sep");
+  const detailSepEl = $("#crumb-detail-sep");
+  const breadcrumb = getBreadcrumbState();
 
-  if (testEl) testEl.textContent = getCurrentTestDisplayName() || "—";
-  if (sessionEl) sessionEl.textContent = state.selectedSessionId ?? "—";
+  const applyCrumb = (el, sepEl, data) => {
+    if (!el || !sepEl) return;
+    const hidden = !data;
+    el.classList.toggle("hidden", hidden);
+    sepEl.classList.toggle("hidden", hidden);
+    if (hidden) return;
+    el.textContent = data.label;
+    el.disabled = !!data.disabled;
+    el.classList.toggle("muted", !!data.disabled);
+  };
 
-  if (testEl) testEl.classList.toggle("muted", !state.selectedTestId);
-  if (sessionEl) sessionEl.classList.toggle("muted", !state.selectedSessionId);
+  if (rootEl) {
+    rootEl.textContent = breadcrumb.root.label;
+    rootEl.disabled = !!breadcrumb.root.disabled;
+    rootEl.classList.toggle("muted", !!breadcrumb.root.disabled);
+  }
+
+  applyCrumb(testEl, testSepEl, breadcrumb.test);
+  applyCrumb(sectionEl, sectionSepEl, breadcrumb.section);
+  applyCrumb(detailEl, detailSepEl, breadcrumb.detail);
 }
 
 function selectTest(testId) {
   const normalizedTestId = normalizeTestId(testId);
   state.selectedTestId = normalizedTestId;
   saveSelectedTestToStorage(normalizedTestId);
-  updateBreadcrumbs();
 
 if (!normalizedTestId) {
     state.selectedSessionIds = [];
@@ -5463,6 +5549,7 @@ if (!normalizedTestId) {
     if (!$("#view-groups")?.classList.contains("hidden")) {
       refreshGroups().then(() => renderGroupsPage());
     }
+    updateBreadcrumbs();
     return;
   }
 
@@ -5502,6 +5589,7 @@ if (!normalizedTestId) {
   if (!$("#groupMovementRatiosModal")?.classList.contains("hidden")) {
     renderGroupMovementRatiosModal();
   }
+  updateBreadcrumbs();
 }
 
 
@@ -5545,6 +5633,7 @@ async function refreshSessions() {
   if (!$("#groupMovementRatiosModal")?.classList.contains("hidden")) {
     renderGroupMovementRatiosModal();
   }
+  updateBreadcrumbs();
 }
 
 // ===== Events wiring =====
@@ -5567,6 +5656,51 @@ function resetClientStateForLogout() {
 }
 
 function wireNavButtons() {
+  $("#crumb-root")?.addEventListener("click", () => {
+    setPage("dashboard");
+    renderTestAggMetrics();
+    renderTestsList();
+  });
+
+  $("#crumb-test")?.addEventListener("click", () => {
+    if (!state.selectedTestId) return;
+    setPage("dashboard");
+    renderTestAggMetrics();
+    renderTestsList();
+  });
+
+  $("#crumb-section")?.addEventListener("click", async () => {
+    if (state.currentPage === "group" || state.currentPage === "individual") {
+      setPage("individual");
+      renderSessionsList();
+      renderSessionMetrics();
+      return;
+    }
+
+    if (state.currentPage === "groups" || state.currentPage === "group-edit") {
+      await refreshGroups();
+      setPage("groups");
+      renderGroupsPage();
+    }
+  });
+
+  $("#crumb-detail")?.addEventListener("click", async () => {
+    if ((state.currentPage === "individual" || state.currentPage === "group") && state.selectedSessionId) {
+      if (!state.selectedSession) {
+        state.selectedSession = state.sessions.find((s) => s.session_id === state.selectedSessionId) ?? null;
+      }
+      setPage("group");
+      renderTasksList();
+      return;
+    }
+
+    if ((state.currentPage === "groups" || state.currentPage === "group-edit") && state.selectedGroupId) {
+      await refreshGroups();
+      setPage("groups");
+      renderGroupsPage();
+    }
+  });
+
   $("#backToTestsBtn")?.addEventListener("click", () => {
     setPage("dashboard");
     selectTest(state.selectedTestId ?? state.tests[0] ?? null);

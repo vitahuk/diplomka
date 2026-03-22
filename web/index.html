@@ -5,7 +5,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>App without a name (for now)</title>
-  <link rel="stylesheet" href="/static/styles.css?v=36" />
+  <link rel="stylesheet" href="/static/styles.css?v=40" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
 </head>
@@ -22,26 +22,20 @@
         </div>
 
         <div class="breadcrumb" aria-label="Breadcrumb">
-          <span class="crumb" id="crumb-root">Testy</span>
-          <span class="crumb-sep">›</span>
-          <span class="crumb muted" id="crumb-test">—</span>
-          <span class="crumb-sep">›</span>
-          <span class="crumb muted" id="crumb-session">—</span>
+          <button class="crumb crumb-btn" id="crumb-root" type="button">Dashboard</button>
+          <span class="crumb-sep hidden" id="crumb-test-sep">›</span>
+          <button class="crumb crumb-btn hidden" id="crumb-test" type="button">—</button>
+          <span class="crumb-sep hidden" id="crumb-section-sep">›</span>
+          <button class="crumb crumb-btn hidden" id="crumb-section" type="button">—</button>
+          <span class="crumb-sep hidden" id="crumb-detail-sep">›</span>
+          <button class="crumb crumb-btn hidden" id="crumb-detail" type="button">—</button>
         </div>
       </div>
 
       <div class="topbar-right">
-        <button class="upload-chip" id="uploadSingleBtn" type="button" title="Nahraj CSV (session)">
-          + Upload CSV (single session)
-        </button>
-        <button class="upload-chip" id="uploadBulkBtn" type="button" title="Nahraj hromadné CSV">
-          + Upload bulk CSV (multiple sessions)
-        </button>
         <button class="btn btn-ghost" id="logoutBtn" type="button" title="Odhlásit se">
           Logout
         </button>
-        <input id="csvInput" type="file" accept=".csv" hidden />
-        <input id="bulkCsvInput" type="file" accept=".csv" hidden />
       </div>
     </header>
 
@@ -57,11 +51,21 @@
               
             </p>
           </div>
+          <div class="page-actions dashboard-actions">
+            <button class="upload-chip" id="uploadSingleBtn" type="button" title="Upload CSV (session)">
+              + Upload CSV (single session)
+            </button>
+            <button class="upload-chip" id="uploadBulkBtn" type="button" title="Upload bulk CSV">
+              + Upload bulk CSV (multiple sessions)
+            </button>
+            <input id="csvInput" type="file" accept=".csv" hidden />
+            <input id="bulkCsvInput" type="file" accept=".csv" hidden />
+          </div>
         </div>
 
         <div class="layout-2">
           <!-- LEFT: TEST LIST -->
-          <section class="card">
+          <section class="card dashboard-tests-card">
             <div class="card-head">
               <div class="row" style="align-items:center;">
                 <h2>User experiments</h2>
@@ -73,10 +77,9 @@
             <div class="list" id="testsList"></div>
 
             <div class="hint">
-              <div class="hint-title">Note</div>
+              <div class="hint-title">Hint</div>
               <div class="muted small">
-                Nahrané CSV = jedna session (jeden uživatel). Hromadné CSV vytvoří jednu session pro každý <b>userid</b>
-                v souboru.
+                Uploading a large CSV might take a while.
               </div>
               <div id="uploadStatus" class="muted small" style="margin-top:8px;"></div>
             </div>
@@ -244,7 +247,7 @@
 
           <div class="page-actions">
             <button class="btn" id="openGroupsBtn" type="button">Groups</button>
-            <button class="btn btn-ghost" id="backToTestsBtn" type="button">← Back to tests</button>
+            <button class="btn btn-ghost" id="backToTestsBtn" type="button">← Back to dashboard</button>
           </div>
         </div>
 
@@ -480,7 +483,7 @@
           <section class="card">
             <div class="card-head">
               <h2>Tasks</h2>
-              <div class="muted small">Click on a task to open its metrics (pop-up).</div>
+              <div class="muted small">Click on a task to open its metrics.</div>
             </div>
 
             <div class="list" id="tasksList">
@@ -502,17 +505,17 @@
               <!-- ADDITIVE: button to open timeline -->
               <div class="placeholder-box">
                 <div class="row" style="justify-content:space-between; align-items:center; gap:12px;">
-                  <div class="muted small">Timeline of events for the whole session</div>
+                  <div class="muted small">Timeline + Movement ratios for the whole session</div>
                   <div class="row" style="gap:8px; flex-wrap:wrap;">
                     <button class="btn" id="openTimelineBtn" type="button">Timeline of events</button>
-                    <button class="btn btn-ghost" id="openIntervalRatiosBtn" type="button">Movement ratios</button>
+                    <button class="btn" id="openIntervalRatiosBtn" type="button">Movement ratios</button>
                   </div>
                 </div>
               </div>
 
               <div class="placeholder-box">
                 <div class="row" style="justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
-                  <div class="muted small">Map (trajectory + viewports)</div>
+                  <div class="muted small">Map + spatial data exports</div>
                   <button class="btn" id="openMapModalBtn" type="button">Open map</button>
                 </div>
               </div>
@@ -992,7 +995,7 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="/static/app.js?v=54"></script>
+  <script src="/static/app.js?v=58"></script>
 </body>
 
 </html>
