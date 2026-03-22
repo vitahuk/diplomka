@@ -483,6 +483,11 @@ async function apiDeleteTest(testId) {
   return res.json();
 }
 
+async function apiListSessions(testId) {
+  const q = testId ? `?test_id=${encodeURIComponent(testId)}` : "";
+  return apiGet(`/api/sessions${q}`);
+}
+
 async function apiGetTaskMetrics(sessionId, taskId) {
   return apiGet(`/api/sessions/${encodeURIComponent(sessionId)}/tasks/${encodeURIComponent(taskId)}/metrics`);
 }
@@ -596,7 +601,7 @@ function renderMetricGrid(metricsObj, containerEl) {
   containerEl.innerHTML = `<div class="metric-grid">${rows}</div>`;
 }
 
-// ===== Dashboard: Test aggregation per task (prepared) =====
+// ===== Dashboard: Test aggregation per task =====
 function computeAggByTask(sessions) {
   const buckets = new Map();
 
@@ -5530,44 +5535,11 @@ function updateBreadcrumbs() {
   applyCrumb(detailEl, detailSepEl, breadcrumb.detail);
 }
 
-function selectTest(testId) {
-  const normalizedTestId = normalizeTestId(testId);
-  state.selectedTestId = normalizedTestId;
-  saveSelectedTestToStorage(normalizedTestId);
-
-if (!normalizedTestId) {
-    state.selectedSessionIds = [];
-    state.selectedSessionId = null;
-    state.selectedSession = null;
-    renderTestAggMetrics();
-    renderSessionsList();
-    renderSessionMetrics();
-    renderTasksList();
-    if (!$("#view-settings")?.classList.contains("hidden")) {
-      renderSettingsPage();
-    }
-    if (!$("#view-groups")?.classList.contains("hidden")) {
-      refreshGroups().then(() => renderGroupsPage());
-    }
-    updateBreadcrumbs();
-    return;
-  }
-
-  state.selectedSessionIds = loadGroupDraftSelectionForTest(normalizedTestId);
-
-  const sessionsForTest = getSessionsForSelectedTest();
-  if (state.selectedSessionId && !sessionsForTest.some(s => s.session_id === state.selectedSessionId)) {
-    state.selectedSessionId = null;
-    state.selectedSession = null;
-  }
-
-  $$("#testsList .list-item").forEach(item => {
-    item.classList.toggle("is-selected", item.dataset.test === normalizedTestId);
-  });
-
+function renderSelectedTestState() {
   renderTestAggMetrics();
   renderSessionsList();
   renderSessionMetrics();
+
   const validIds = new Set(getSessionsForSelectedTest().map((x) => x.session_id));
   state.selectedSessionIds = (state.selectedSessionIds ?? []).filter((sid) => validIds.has(sid));
   persistGroupDraftSelection();
@@ -5589,9 +5561,39 @@ if (!normalizedTestId) {
   if (!$("#groupMovementRatiosModal")?.classList.contains("hidden")) {
     renderGroupMovementRatiosModal();
   }
+
   updateBreadcrumbs();
 }
 
+function selectTest(testId) {
+  const normalizedTestId = normalizeTestId(testId);
+  state.selectedTestId = normalizedTestId;
+  saveSelectedTestToStorage(normalizedTestId);
+
+  if (!normalizedTestId) {
+    state.selectedSessionIds = [];
+    state.selectedSessionId = null;
+    state.selectedSession = null;
+    state.sessions = [];
+    renderSelectedTestState();
+    return;
+  }
+
+  state.selectedSessionIds = loadGroupDraftSelectionForTest(normalizedTestId);
+  state.selectedSessionId = null;
+  state.selectedSession = null;
+  state.sessions = [];
+
+  $$("#testsList .list-item").forEach(item => {
+    item.classList.toggle("is-selected", item.dataset.test === normalizedTestId);
+  });
+
+  renderSelectedTestState();
+  refreshSessions().catch((error) => {
+    const statusEl = $("#uploadStatus");
+    if (statusEl) statusEl.textContent = `Backend unavailable: ${error?.message ?? error}`;
+  });
+}
 
 function selectSession(sessionId) {
   state.selectedSessionId = sessionId;
@@ -5611,7 +5613,7 @@ function selectSession(sessionId) {
 
 // ===== Loading data =====
 async function refreshSessions() {
-  const data = await apiGet("/api/sessions");
+  const data = await apiListSessions(state.selectedTestId ?? "TEST");
   state.sessions = data.sessions ?? [];
   syncTestsWithSessions(state.sessions);
   renderTestsList();
@@ -5623,17 +5625,7 @@ async function refreshSessions() {
     state.selectedSession = state.sessions.find(s => s.session_id === state.selectedSessionId) ?? null;
   }
 
-  const validIds = new Set(getSessionsForSelectedTest().map((x) => x.session_id));
-  state.selectedSessionIds = (state.selectedSessionIds ?? []).filter((sid) => validIds.has(sid));
-  persistGroupDraftSelection();
-
-  if (!$("#view-groups")?.classList.contains("hidden")) {
-    refreshGroups().then(() => renderGroupsPage());
-  }
-  if (!$("#groupMovementRatiosModal")?.classList.contains("hidden")) {
-    renderGroupMovementRatiosModal();
-  }
-  updateBreadcrumbs();
+  renderSelectedTestState();
 }
 
 // ===== Events wiring =====
@@ -6338,7 +6330,6 @@ async function init() {
   state.selectedTestId = loadSelectedTestFromStorage(state.tests);
 
   try {
-    await refreshSessions();
     await loadTestsCatalogFromBackend();
   } catch (e) {
     const statusEl = $("#uploadStatus");

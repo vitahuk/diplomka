@@ -865,7 +865,7 @@ def _normalize_session_nationality(session_data: SessionData, persist: bool = Fa
 
 def _recompute_answers_eval_for_test(test_id: str) -> Dict[str, int]:
     normalized_test_id = str(test_id or "TEST").strip() or "TEST"
-    sessions = STORE.list_sessions()
+    sessions = STORE.list_sessions(test_id=normalized_test_id)
     matched = 0
     updated = 0
 
@@ -884,6 +884,44 @@ def _recompute_answers_eval_for_test(test_id: str) -> Dict[str, int]:
             updated += 1
 
     return {"matched": matched, "updated": updated}
+
+def _serialize_session_payload(session: SessionData, *, include_file_path: bool = False) -> Dict[str, Any]:
+    stats = session.stats if isinstance(session.stats, dict) else {}
+    task_metrics = stats.get("tasks", {}) if isinstance(stats.get("tasks"), dict) else {}
+    payload = {
+        "session_id": session.session_id,
+        "test_id": getattr(session, "test_id", "TEST") or "TEST",
+        "user_id": session.user_id,
+        "task": session.task,
+        "tasks": list(task_metrics.keys()),
+        "stats": stats,
+        "session_stats": stats.get("session", {}) if isinstance(stats.get("session"), dict) else {},
+    }
+    if include_file_path:
+        payload["file_path"] = session.file_path
+    return payload
+
+
+def _build_group_sessions_payload(session_ids: List[str]) -> List[Dict[str, Any]]:
+    ordered_ids = [str(sid).strip() for sid in session_ids if isinstance(sid, str) and str(sid).strip()]
+    if not ordered_ids:
+        return []
+
+    sessions_by_id = STORE.list_sessions(session_ids=ordered_ids)
+    return _serialize_group_sessions_payload(sessions_by_id, ordered_ids)
+
+
+def _serialize_group_sessions_payload(
+    sessions_by_id: Dict[str, SessionData],
+    ordered_ids: List[str],
+) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for session_id in ordered_ids:
+        session = sessions_by_id.get(session_id)
+        if session is None:
+            continue
+        out.append(_serialize_session_payload(session))
+    return out
 
 def _build_group_answers_payload(group: Dict[str, Any]) -> Dict[str, Any]:
     sessions = group.get("sessions", []) if isinstance(group.get("sessions"), list) else []
@@ -1250,30 +1288,9 @@ def get_upload_job(job_id: str):
 
 
 @app.get("/api/sessions")
-def list_sessions():
-    sessions = STORE.list_sessions()
-
-    out = []
-    for s in sessions.values():
-        _refresh_session_answers_eval(s, persist=True)
-        _refresh_session_interval_event_ratios(s, persist=True)
-        stats = s.stats if isinstance(s.stats, dict) else {}
-        session_stats = stats.get("session", {}) if isinstance(stats.get("session"), dict) else {}
-
-        task_metrics = stats.get("tasks", {}) if isinstance(stats.get("tasks"), dict) else {}
-        tasks = list(task_metrics.keys())
-
-        out.append({
-            "session_id": s.session_id,
-            "test_id": getattr(s, "test_id", "TEST") or "TEST",
-            "user_id": s.user_id,
-            "task": s.task,      # legacy
-            "tasks": tasks,      # new
-            "stats": stats,
-            "session_stats": session_stats,
-        })
-
-    return {"sessions": out}
+def list_sessions(test_id: Optional[str] = None):
+    sessions = STORE.list_sessions(test_id=test_id)
+    return {"sessions": [_serialize_session_payload(session) for session in sessions.values()]}
 
 
 @app.get("/api/sessions/{session_id}")
@@ -1282,21 +1299,7 @@ def get_session(session_id: str):
     if not s:
         raise HTTPException(status_code=404, detail="Session not found.")
 
-    _refresh_session_answers_eval(s, persist=True)
-    _refresh_session_interval_event_ratios(s, persist=True)
-    stats = s.stats if isinstance(s.stats, dict) else {}
-    task_metrics = stats.get("tasks", {}) if isinstance(stats.get("tasks"), dict) else {}
-    tasks = list(task_metrics.keys())
-
-    return {
-        "session_id": s.session_id,
-        "test_id": getattr(s, "test_id", "TEST") or "TEST",
-        "user_id": s.user_id,
-        "task": s.task,      # legacy
-        "tasks": tasks,      # new
-        "stats": stats,
-        "file_path": s.file_path,
-    }
+    return _serialize_session_payload(s, include_file_path=True)
 
 
 @app.get("/api/sessions/{session_id}/tasks/{task_id}/metrics")
@@ -1312,7 +1315,7 @@ def get_task_metrics(session_id: str, task_id: str):
     if not isinstance(m, dict):
         raise HTTPException(status_code=404, detail="Task not found in session.")
 
-    answers_eval = _refresh_session_answers_eval(s, persist=True)
+    answers_eval = stats.get("answers_eval") if isinstance(stats.get("answers_eval"), dict) else {}
     task_eval_map = answers_eval.get("by_task") if isinstance(answers_eval.get("by_task"), dict) else {}
     task_eval = task_eval_map.get(task_id) if isinstance(task_eval_map.get(task_id), dict) else {}
 
@@ -1330,7 +1333,11 @@ def get_session_answers_eval(session_id: str):
     if not s:
         raise HTTPException(status_code=404, detail="Session not found.")
 
-    payload = _refresh_session_answers_eval(s, persist=True)
+    stats = s.stats if isinstance(s.stats, dict) else {}
+    payload = stats.get("answers_eval") if isinstance(stats.get("answers_eval"), dict) else {
+        "summary": {},
+        "by_task": {},
+    }
     return {
         "session_id": s.session_id,
         "user_id": s.user_id,
@@ -1344,7 +1351,8 @@ def get_session_interval_event_ratios(session_id: str):
     if not s:
         raise HTTPException(status_code=404, detail="Session not found.")
 
-    payload = _refresh_session_interval_event_ratios(s, persist=True)
+    stats = s.stats if isinstance(s.stats, dict) else {}
+    payload = stats.get("interval_event_ratios") if isinstance(stats.get("interval_event_ratios"), dict) else None
     if payload is None:
         raise HTTPException(status_code=404, detail="Interval event ratios not available for this session.")
 
@@ -1699,37 +1707,27 @@ def api_delete_test(test_id: str):
 def api_list_groups(test_id: Optional[str] = None):
     groups = list_groups(test_id=test_id)
 
-    out = []
-    for g in groups:
-        session_ids = g.get("session_ids", []) if isinstance(g.get("session_ids"), list) else []
-        sessions_out = []
-
-        for sid in session_ids:
-            session = STORE.get(sid)
-            if not session:
-                continue
-            _refresh_session_answers_eval(session, persist=True)
-            _refresh_session_interval_event_ratios(session, persist=True)
-            stats = session.stats if isinstance(session.stats, dict) else {}
-            sessions_out.append({
-                "session_id": session.session_id,
-                "user_id": session.user_id,
-                "test_id": getattr(session, "test_id", "TEST") or "TEST",
-                "task": session.task,
-                "tasks": list((stats or {}).get("tasks", {}).keys()),
-                "stats": stats,
-            })
-
-        out.append({
-            "id": g.get("id"),
-            "test_id": g.get("test_id"),
-            "name": g.get("name"),
-            "note": g.get("note"),
-            "session_ids": session_ids,
-            "sessions": sessions_out,
-        })
-
-    return {"groups": out}
+    all_session_ids = [
+        str(session_id).strip()
+        for group in groups
+        for session_id in (group.get("session_ids", []) if isinstance(group.get("session_ids"), list) else [])
+        if isinstance(session_id, str) and str(session_id).strip()
+    ]
+    sessions_by_id = STORE.list_sessions(session_ids=list(dict.fromkeys(all_session_ids)))
+    return {
+        "groups": [
+            {
+                "id": group.get("id"),
+                "test_id": group.get("test_id"),
+                "name": group.get("name"),
+                "note": group.get("note"),
+                "session_ids": session_ids,
+                "sessions": _serialize_group_sessions_payload(sessions_by_id, session_ids),
+            }
+            for group in groups
+            for session_ids in [group.get("session_ids", []) if isinstance(group.get("session_ids"), list) else []]
+        ]
+    }
 
 
 @app.get("/api/groups/{group_id}/export-csv")
@@ -1808,41 +1806,7 @@ def api_group_answers(group_id: str):
         raise HTTPException(status_code=404, detail="Group not found.")
 
     session_ids = group.get("session_ids", []) if isinstance(group.get("session_ids"), list) else []
-    sessions_out = []
-    for sid in session_ids:
-        session = STORE.get(sid)
-        if not session:
-            continue
-
-        stats = session.stats if isinstance(session.stats, dict) else {}
-        answers_by_task = stats.get("answers_by_task") if isinstance(stats.get("answers_by_task"), dict) else {}
-
-        if not answers_by_task:
-            # Backfill for sessions uploaded before answers extraction existed.
-            csv_path = Path(session.file_path)
-            if csv_path.exists():
-                try:
-                    df_session = _read_csv_flexible(csv_path)
-                    answers_by_task = _extract_answers_by_task_from_df(df_session)
-                except Exception:
-                    answers_by_task = {}
-            stats = {**stats, "answers_by_task": answers_by_task}
-            session.stats = stats
-        
-        _refresh_session_answers_eval(session, persist=True)
-        stats = session.stats if isinstance(session.stats, dict) else {}
-
-
-        sessions_out.append({
-            "session_id": session.session_id,
-            "user_id": session.user_id,
-            "test_id": getattr(session, "test_id", "TEST") or "TEST",
-            "task": session.task,
-            "tasks": list((stats or {}).get("tasks", {}).keys()),
-            "stats": stats,
-        })
-
-    payload = _build_group_answers_payload({**group, "sessions": sessions_out})
+    payload = _build_group_answers_payload({**group, "sessions": _build_group_sessions_payload(session_ids)})
     return payload
 
 

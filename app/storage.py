@@ -8,7 +8,7 @@ import os
 import threading
 
 from sqlalchemy import String, Text, create_engine, select, delete, update, event, inspect, text
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker, selectinload
 from sqlalchemy.types import JSON
 from sqlalchemy.schema import ForeignKey
 
@@ -337,9 +337,27 @@ class DatabaseStore:
                 stats=row.stats if isinstance(row.stats, dict) else {},
             )
 
-    def list_sessions(self) -> Dict[str, SessionData]:
+    def list_sessions(
+        self,
+        *,
+        test_id: Optional[str] = None,
+        session_ids: Optional[List[str]] = None,
+    ) -> Dict[str, SessionData]:
         with SessionLocal() as db:
-            rows = db.execute(select(SessionRecord)).scalars().all()
+            stmt = select(SessionRecord)
+
+            if isinstance(test_id, str) and test_id.strip():
+                stmt = stmt.where(SessionRecord.test_id == _normalize_test_id(test_id))
+
+            normalized_ids = _normalize_session_ids(session_ids or [])
+            if session_ids is not None and not normalized_ids:
+                return {}
+            if normalized_ids:
+                stmt = stmt.where(SessionRecord.session_id.in_(normalized_ids))
+
+            rows = db.execute(
+                stmt.order_by(SessionRecord.test_id.asc(), SessionRecord.session_id.asc())
+            ).scalars().all()
             return {
                 row.session_id: SessionData(
                     session_id=row.session_id,
@@ -538,11 +556,11 @@ def set_test_answers_bulk(test_id: str, answers_by_task: Dict[str, Optional[str]
 
 def list_groups(test_id: Optional[str] = None) -> List[Dict[str, Any]]:
     with SessionLocal() as db:
-        stmt = select(GroupRecord)
+        stmt = select(GroupRecord).options(selectinload(GroupRecord.session_links))
         if isinstance(test_id, str) and test_id.strip():
             stmt = stmt.where(GroupRecord.test_id == test_id.strip())
 
-        groups = db.execute(stmt).scalars().all()
+        groups = db.execute(stmt.order_by(GroupRecord.name.asc(), GroupRecord.id.asc())).scalars().all()
 
         out: List[Dict[str, Any]] = []
         for group in groups:
