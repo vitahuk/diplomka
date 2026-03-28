@@ -780,6 +780,13 @@ p {
   margin-bottom: 10px;
 }
 
+.compare-chart-task-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
 .compare-chart-series-control {
   display: inline-flex;
   align-items: center;
@@ -872,7 +879,7 @@ p {
 .compare-chart-x-label {
   fill: #374151;
   font-size: 11px;
-  text-anchor: middle;
+  text-anchor: end;
 }
 
 .compare-chart-point {

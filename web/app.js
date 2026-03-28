@@ -150,6 +150,8 @@ const state = {
   groupCompareChartSortMode: "overall",
   groupCompareChartReferenceGroupId: null,
   groupCompareChartColors: {},
+  groupCompareChartVisibleTasks: [],
+  groupCompareAnswersCache: {},
   groupCompareMovementSelection: {
     taskKey: "ALL_TASKS",
     statistic: "average",
@@ -4228,6 +4230,7 @@ function renderGroupCompareMovementTab(groups) {
 
 const GROUP_COMPARE_DIMENSIONS = {
   nationality: { label: "Nationality", key: "nationality" },
+  tasks: { label: "Tasks", key: "tasks" },
 };
 
 const GROUP_COMPARE_COLOR_PALETTE = [
@@ -4264,11 +4267,48 @@ function getGroupDimensionAccuracyMap(group, dimensionKey) {
   }));
 }
 
-function buildGroupCompareChartData(groups) {
+function getGroupTaskAccuracyMap(groupAnswersPayload, taskIds) {
+  const map = new Map();
+  (taskIds ?? []).forEach((taskId) => {
+    const taskAccuracy = Number(groupAnswersPayload?.tasks?.[taskId]?.accuracy);
+    if (!Number.isFinite(taskAccuracy)) return;
+    map.set(taskId, taskAccuracy * 100);
+  });
+  return map;
+}
+
+  async function ensureGroupAnswersCache(groupIds = []) {
+  const ids = Array.from(new Set((groupIds ?? []).filter(Boolean)));
+  const missingIds = ids.filter((groupId) => !state.groupCompareAnswersCache?.[groupId]);
+  if (!missingIds.length) return state.groupCompareAnswersCache ?? {};
+
+  const responses = await Promise.all(
+    missingIds.map((groupId) => apiGetGroupAnswers(groupId).catch(() => null)),
+  );
+
+  const nextCache = { ...(state.groupCompareAnswersCache ?? {}) };
+  missingIds.forEach((groupId, index) => {
+    nextCache[groupId] = responses[index];
+  });
+  state.groupCompareAnswersCache = nextCache;
+  return nextCache;
+}
+
+function buildGroupCompareChartData(groups, options = {}) {
   const dimensionCfg = GROUP_COMPARE_DIMENSIONS[state.groupCompareChartDimension] ?? GROUP_COMPARE_DIMENSIONS.nationality;
+  const groupAnswersById = options.groupAnswersById ?? {};
+  const allTaskIds = dimensionCfg.key === "tasks"
+    ? Array.from(new Set((groups ?? []).flatMap((group) => Object.keys(groupAnswersById?.[group.id]?.tasks ?? {})))).sort((a, b) => a.localeCompare(b))
+    : getAllTaskIdsForGroups(groups);
+  const selectedVisibleTasks = Array.isArray(state.groupCompareChartVisibleTasks)
+    ? state.groupCompareChartVisibleTasks.filter((taskId) => allTaskIds.includes(taskId))
+    : [];
+  const taskIdsForChart = (selectedVisibleTasks.length ? selectedVisibleTasks : allTaskIds);
   const categorySet = new Set();
   const series = (groups ?? []).map((group, index) => {
-    const pointsByCategory = getGroupDimensionAccuracyMap(group, dimensionCfg.key);
+    const pointsByCategory = dimensionCfg.key === "tasks"
+      ? getGroupTaskAccuracyMap(groupAnswersById?.[group.id], taskIdsForChart)
+      : getGroupDimensionAccuracyMap(group, dimensionCfg.key);
     Array.from(pointsByCategory.keys()).forEach((category) => categorySet.add(category));
     return {
       groupId: group.id,
@@ -4305,6 +4345,8 @@ function buildGroupCompareChartData(groups) {
     xAxisLabel: dimensionCfg.label,
     categories,
     series,
+    allTaskIds,
+    visibleTaskIds: taskIdsForChart,
   };
 }
 
@@ -4343,7 +4385,7 @@ function computeSnappedOffsets(series, categories) {
   return result;
 }
 
-function renderGroupCompareChartTab(groups) {
+async function renderGroupCompareChartTab(groups) {
   const wrap = $("#groupsCompareChartWrap");
   if (!wrap) return;
 
@@ -4356,7 +4398,24 @@ function renderGroupCompareChartTab(groups) {
     state.groupCompareChartReferenceGroupId = groups[0]?.id ?? null;
   }
 
-  const chartData = buildGroupCompareChartData(groups);
+  let groupAnswersById = {};
+  if (state.groupCompareChartDimension === "tasks") {
+    const groupIds = (groups ?? []).map((group) => group.id);
+    await ensureGroupAnswersCache(groupIds);
+    groupAnswersById = state.groupCompareAnswersCache ?? {};
+  }
+
+  const chartData = buildGroupCompareChartData(groups, { groupAnswersById });
+  if (state.groupCompareChartDimension === "tasks") {
+    if (!state.groupCompareChartVisibleTasks.length) {
+      state.groupCompareChartVisibleTasks = [...chartData.allTaskIds];
+    } else {
+      state.groupCompareChartVisibleTasks = state.groupCompareChartVisibleTasks.filter((taskId) => chartData.allTaskIds.includes(taskId));
+      if (!state.groupCompareChartVisibleTasks.length) {
+        state.groupCompareChartVisibleTasks = [...chartData.allTaskIds];
+      }
+    }
+  }
 
   if (!chartData.categories.length || !chartData.series.length) {
     wrap.innerHTML = `<div class="empty"><div class="empty-title">Not enough data to render</div><div class="muted small">Choose different groups or a different X-axis dimension.</div></div>`;
@@ -4395,13 +4454,34 @@ function renderGroupCompareChartTab(groups) {
         `;
       }).join("")}
     </div>
+    ${state.groupCompareChartDimension === "tasks" ? `
+      <div class="compare-chart-task-controls" id="groupCompareTaskControls">
+        ${chartData.allTaskIds.map((taskId) => {
+          const isVisible = state.groupCompareChartVisibleTasks.includes(taskId);
+          return `
+            <button class="chip group-edit-metric-chip ${isVisible ? "is-selected" : "is-unselected"}"
+              type="button"
+              data-role="task-visibility-toggle"
+              data-task-id="${escapeHtml(taskId)}"
+              aria-pressed="${isVisible ? "true" : "false"}"
+              title="${escapeHtml(taskId)}">
+              ${escapeHtml(taskId)}
+            </button>
+          `;
+        }).join("")}
+      </div>
+    ` : ""}
   `;
 
   const width = 700;
-  const height = 300;
-  const margin = { top: 28, right: 14, bottom: 70, left: 50 };
+  const maxLabelLength = Math.max(...chartData.categories.map((category) => String(category ?? "").length), 0);
+  const xLabelGapFromAxis = 19;
+  const dynamicBottom = Math.min(300, Math.max(70, Math.round(maxLabelLength * 7) + xLabelGapFromAxis + 12));
+  const margin = { top: 28, right: 14, bottom: dynamicBottom, left: 50 };
+  const plotHeight = 202;
+  const height = margin.top + plotHeight + margin.bottom;
   const innerW = width - margin.left - margin.right;
-  const innerH = height - margin.top - margin.bottom;
+  const innerH = plotHeight;
   const xStep = chartData.categories.length > 1 ? innerW / (chartData.categories.length - 1) : 0;
 
   const xForIndex = (index) => margin.left + (chartData.categories.length === 1 ? innerW / 2 : index * xStep);
@@ -4442,9 +4522,13 @@ function renderGroupCompareChartTab(groups) {
     `;
   }).join("");
 
+  const axisY = height - margin.bottom;
+  const xLabelBaseY = axisY + xLabelGapFromAxis;
+  const xLabelAlignOffset = -5;
   const xLabels = chartData.categories.map((category, idx) => {
     const x = xForIndex(idx);
-    return `<text x="${x}" y="${height - 22}" class="compare-chart-x-label">${escapeHtml(category)}</text>`;
+    const labelX = x + xLabelAlignOffset;
+    return `<text x="${labelX}" y="${xLabelBaseY}" class="compare-chart-x-label compare-chart-x-label-vertical" text-anchor="end" dominant-baseline="hanging" transform="rotate(-90 ${labelX} ${xLabelBaseY})">${escapeHtml(category)}</text>`;
   }).join("");
 
   wrap.innerHTML = `
@@ -4474,6 +4558,9 @@ function renderGroupCompareChartTab(groups) {
   const rerender = () => renderGroupCompareModal();
   $("#groupCompareChartDimensionSelect")?.addEventListener("change", (e) => {
     state.groupCompareChartDimension = e.target.value;
+    if (state.groupCompareChartDimension === "tasks") {
+      state.groupCompareChartVisibleTasks = [];
+    }
     rerender();
   });
   $("#groupCompareChartSortModeSelect")?.addEventListener("change", (e) => {
@@ -4494,6 +4581,21 @@ function renderGroupCompareChartTab(groups) {
     });
   });
 
+  $$("#groupCompareTaskControls [data-role='task-visibility-toggle']").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const taskId = btn.dataset.taskId;
+      if (!taskId) return;
+      const selected = new Set(state.groupCompareChartVisibleTasks ?? []);
+      if (selected.has(taskId)) {
+        selected.delete(taskId);
+      } else {
+        selected.add(taskId);
+      }
+      state.groupCompareChartVisibleTasks = Array.from(selected);
+      rerender();
+    });
+  });
+
   const tooltip = $("#groupCompareChartTooltip");
   const chartWrap = $(".compare-chart-canvas-wrap");
   const svgEl = chartWrap?.querySelector(".compare-chart-svg");
@@ -4508,10 +4610,28 @@ function renderGroupCompareChartTab(groups) {
 
     const scaleX = svgRect.width / width;
     const scaleY = svgRect.height / height;
-    const left = (svgRect.left - chartRect.left) + (px * scaleX) + 12;
-    const top = (svgRect.top - chartRect.top) + (py * scaleY) - 16;
+    const anchorX = (svgRect.left - chartRect.left) + (px * scaleX);
+    const anchorY = (svgRect.top - chartRect.top) + (py * scaleY);
+    const tooltipWidth = tooltip.offsetWidth || 170;
+    const tooltipHeight = tooltip.offsetHeight || 60;
+    const rightPadding = 8;
+    const leftPadding = 8;
+    const verticalPadding = 8;
+    const gap = 12;
+
+    let left = anchorX + gap;
+    if (left + tooltipWidth > chartRect.width - rightPadding) {
+      left = anchorX - tooltipWidth - gap;
+    }
+    left = Math.max(leftPadding, Math.min(left, chartRect.width - tooltipWidth - rightPadding));
+
+    const top = Math.max(
+      verticalPadding,
+      Math.min(anchorY - 16, chartRect.height - tooltipHeight - verticalPadding),
+    );
+
     tooltip.style.left = `${left}px`;
-    tooltip.style.top = `${Math.max(8, top)}px`;
+    tooltip.style.top = `${top}px`;
   };
 
   $$(".compare-chart-point").forEach((point) => {
