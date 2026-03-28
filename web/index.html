@@ -247,6 +247,7 @@
 
           <div class="page-actions">
             <button class="btn" id="openGroupsBtn" type="button">Groups</button>
+            <button class="btn btn-ghost" id="exportTestGazeplotterCsvBtn" type="button">Export GazePlotter CSV</button>
             <button class="btn btn-ghost" id="backToTestsBtn" type="button">← Back to dashboard</button>
           </div>
         </div>
@@ -338,6 +339,7 @@
           </div>
           <div class="page-actions">
             <button class="btn" id="editGroupBtn" type="button" disabled>Edit group</button>
+            <button class="btn btn-ghost" id="exportGroupGazeplotterCsvBtn" type="button" disabled>Export GazePlotter CSV</button>
             <button class="btn btn-ghost" id="backFromGroupsBtn" type="button">← Back</button>
           </div>
         </div>
@@ -919,6 +921,25 @@
       <div class="modal-foot">
         <button class="btn btn-ghost" id="cancelGroupSplitBtn" type="button">Cancel</button>
         <button class="btn" id="confirmGroupSplitBtn" type="button">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal hidden" id="gazeplotterExportConfirmModal" role="dialog" aria-modal="true" aria-labelledby="gazeplotterExportConfirmTitle">
+    <div class="modal-backdrop" id="gazeplotterExportConfirmBackdrop"></div>
+    <div class="modal-card">
+      <div class="modal-head">
+        <div>
+          <div class="modal-title" id="gazeplotterExportConfirmTitle">Export GazePlotter CSV</div>
+        </div>
+        <button class="btn btn-ghost" id="gazeplotterExportConfirmCloseBtn" type="button">✕</button>
+      </div>
+      <div class="modal-body">
+        <p id="gazeplotterExportConfirmText"></p>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" id="gazeplotterExportConfirmBackBtn" type="button">Back</button>
+        <button class="btn" id="gazeplotterExportConfirmRunBtn" type="button">Confirm</button>
       </div>
     </div>
   </div>

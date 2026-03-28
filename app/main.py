@@ -481,15 +481,53 @@ def _build_timeline_items_from_events_df(df: pd.DataFrame) -> List[Dict[str, Any
             "task": open_popup.get("task"),
         })
 
-    if events and int(events[0]["timestamp"]) > 0:
-        items.insert(0, {
+    first_task_id: Optional[str] = None
+    setting_task_start_by_task: Dict[str, int] = {}
+    question_closed_by_task: Dict[str, int] = {}
+    for event in events:
+        task_raw = event.get("task")
+        task_id = str(task_raw).strip() if task_raw is not None else ""
+        if not task_id:
+            continue
+        if first_task_id is None:
+            first_task_id = task_id
+        event_name = str(event.get("event_name") or "")
+        ts = int(event.get("timestamp", 0))
+        if event_name == "setting task" and task_id not in setting_task_start_by_task:
+            setting_task_start_by_task[task_id] = ts
+        if event_name == "question dialog closed" and task_id not in question_closed_by_task:
+            question_closed_by_task[task_id] = ts
+
+    intro_items: List[Dict[str, Any]] = []
+    for task_id, end_ts in question_closed_by_task.items():
+        if task_id in setting_task_start_by_task:
+            start_ts = setting_task_start_by_task[task_id]
+        elif task_id == first_task_id:
+            start_ts = 0
+        else:
+            continue
+        if end_ts < start_ts:
+            continue
+        intro_items.append({
             "type": "interval",
             "name": "INTRO",
-            "startTs": 0,
-            "endTs": int(events[0]["timestamp"]),
-            "task": events[0].get("task"),
+            "startTs": int(start_ts),
+            "endTs": int(end_ts),
+            "task": task_id,
         })
 
+    if intro_items:
+        intro_items.sort(key=lambda item: (int(item.get("startTs", 0)), int(item.get("endTs", 0))))
+        items = intro_items + items
+
+    items.sort(
+        key=lambda item: (
+            int(item.get("startTs", item.get("ts", 0))),
+            int(item.get("endTs", item.get("ts", 0))),
+            0 if str(item.get("type") or "") == "interval" else 1,
+        )
+    )
+   
     return items
 
 def _build_task_start_offsets(events: List[Dict[str, Any]]) -> Dict[str, int]:
@@ -514,6 +552,85 @@ def _build_task_start_offsets(events: List[Dict[str, Any]]) -> Dict[str, int]:
             task_offsets[task_id] = int(event.get("timestamp", 0))
 
     return task_offsets
+
+def _build_gazeplotter_segments_for_session(session: SessionData) -> List[Dict[str, Any]]:
+    csv_path = Path(session.file_path)
+    if not csv_path.exists():
+        raise HTTPException(status_code=404, detail=f"CSV file for session '{session.session_id}' not found.")
+
+    df = _read_session_events_df(csv_path)
+    participant = str(session.user_id or "").strip()
+    if not participant and not df.empty:
+        participant = "unknown"
+
+    timeline_items = _build_timeline_items_from_events_df(df)
+    task_start_offsets = _build_task_start_offsets(df.to_dict("records"))
+
+    filtered_instant_events = {"movestart", "moveend", "zoom in", "zoom out", "popupopen:name", "popupclose", "setting task", "question dialog closed"}
+    segments: List[Dict[str, Any]] = []
+    previous_non_interval_key: Optional[tuple] = None
+    for item in timeline_items:
+        item_type = str(item.get("type") or "")
+        aoi_name = str(item.get("name", ""))
+        is_interval = item_type == "interval"
+
+        if not is_interval and aoi_name.strip().lower() in filtered_instant_events:
+            continue
+
+        if is_interval:
+            from_ts = int(item.get("startTs", 0))
+            to_ts = int(item.get("endTs", from_ts))
+        else:
+            point_ts = int(item.get("ts", 0))
+            from_ts = point_ts
+            to_ts = point_ts
+
+        stimulus_raw = item.get("task")
+        stimulus = "" if stimulus_raw is None else str(stimulus_raw)
+        stimulus_key = stimulus.strip()
+        task_offset = task_start_offsets.get(stimulus_key, 0) if stimulus_key else 0
+        from_ts -= task_offset
+        to_ts -= task_offset
+
+        if to_ts < from_ts or from_ts < 0:
+            continue
+
+        segment = {
+            "From": from_ts,
+            "To": to_ts,
+            "Participant": participant,
+            "Stimulus": stimulus,
+            "AOI": aoi_name,
+        }
+
+        if not is_interval:
+            dedupe_key = (
+                segment["Participant"],
+                segment["Stimulus"],
+                segment["AOI"],
+                segment["From"],
+                segment["To"],
+            )
+            if previous_non_interval_key == dedupe_key:
+                continue
+            previous_non_interval_key = dedupe_key
+        else:
+            previous_non_interval_key = None
+
+        segments.append(segment)
+    return segments
+
+
+def _resolve_test_export_name(test_id: str) -> str:
+    normalized_test_id = str(test_id or "").strip()
+    if not normalized_test_id:
+        return "user_experiment"
+    for test in list_tests():
+        if str(test.get("id") or "").strip() != normalized_test_id:
+            continue
+        candidate = str(test.get("name") or "").strip() or normalized_test_id
+        return candidate
+    return normalized_test_id
 
 INTERVAL_EVENT_NAME_MAP: Dict[str, str] = {
     "MOVE": "move",
@@ -1399,52 +1516,64 @@ def export_session_events_gazeplotter_csv(session_id: str):
     s = STORE.get(session_id)
     if not s:
         raise HTTPException(status_code=404, detail="Session not found.")
+    segments = _build_gazeplotter_segments_for_session(s)
 
-    csv_path = Path(s.file_path)
-    if not csv_path.exists():
-        raise HTTPException(status_code=404, detail="CSV file for session not found.")
+    export_df = pd.DataFrame(segments, columns=["From", "To", "Participant", "Stimulus", "AOI"])
+    csv_data = export_df.to_csv(index=False, sep=',')
+    test_name = _resolve_test_export_name(s.test_id)
+    participant = _sanitize_filename_component(str(s.user_id or "unknown"))
+    filename = f"{_sanitize_filename_component(test_name)}_{participant}_gazeplotter_export.csv"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return Response(content=csv_data, media_type="text/csv; charset=utf-8", headers=headers)
 
-    df = _read_session_events_df(csv_path)
 
-    participant = str(s.user_id or "")
-    if not participant and not df.empty:
-        participant = "unknown"
-
-    timeline_items = _build_timeline_items_from_events_df(df)
-    task_start_offsets = _build_task_start_offsets(df.to_dict("records"))
+@app.get("/api/tests/{test_id}/sessions/events/export")
+def export_test_events_gazeplotter_csv(test_id: str):
+    sessions = list(STORE.list_sessions(test_id=test_id).values())
+    if not sessions:
+        raise HTTPException(status_code=404, detail="No sessions found for this user experiment.")
 
     segments: List[Dict[str, Any]] = []
-    for item in timeline_items:
-        if item.get("type") == "interval":
-            from_ts = int(item.get("startTs", 0))
-            to_ts = int(item.get("endTs", from_ts))
-        else:
-            point_ts = int(item.get("ts", 0))
-            from_ts = point_ts
-            to_ts = point_ts
-
-        stimulus_raw = item.get("task")
-        stimulus = "" if stimulus_raw is None else str(stimulus_raw)
-        stimulus_key = stimulus.strip()
-        task_offset = task_start_offsets.get(stimulus_key, 0) if stimulus_key else 0
-        from_ts -= task_offset
-        to_ts -= task_offset
-
-        if to_ts < from_ts or from_ts < 0:
-            continue
-
-        segments.append({
-            "From": from_ts,
-            "To": to_ts,
-            "Participant": participant,
-            "Stimulus": stimulus,
-            "AOI": str(item.get("name", "")),
-        })
+    for session in sessions:
+        segments.extend(_build_gazeplotter_segments_for_session(session))
 
     export_df = pd.DataFrame(segments, columns=["From", "To", "Participant", "Stimulus", "AOI"])
     csv_data = export_df.to_csv(index=False, sep=',')
 
-    filename = f"gazeplotter_segments_{_sanitize_filename_component(s.session_id)}.csv"
+    test_name = _resolve_test_export_name(test_id)
+    filename = f"{_sanitize_filename_component(test_name)}_all_sessions_gazeplotter_export.csv"
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return Response(content=csv_data, media_type="text/csv; charset=utf-8", headers=headers)
+
+
+@app.get("/api/groups/{group_id}/events/export")
+def export_group_events_gazeplotter_csv(group_id: str):
+    group = next((g for g in list_groups() if g.get("id") == group_id), None)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found.")
+
+    session_ids = group.get("session_ids", []) if isinstance(group.get("session_ids"), list) else []
+    if not session_ids:
+        raise HTTPException(status_code=400, detail="Group contains no sessions.")
+
+    sessions_by_id = STORE.list_sessions(session_ids=session_ids)
+    ordered_sessions = [sessions_by_id[sid] for sid in session_ids if sid in sessions_by_id]
+    if not ordered_sessions:
+        raise HTTPException(status_code=404, detail="No sessions found for this group.")
+
+    segments: List[Dict[str, Any]] = []
+    for session in ordered_sessions:
+        segments.extend(_build_gazeplotter_segments_for_session(session))
+
+    export_df = pd.DataFrame(segments, columns=["From", "To", "Participant", "Stimulus", "AOI"])
+    csv_data = export_df.to_csv(index=False, sep=',')
+
+    test_name = _resolve_test_export_name(str(group.get("test_id") or ""))
+    group_name = str(group.get("name") or group_id)
+    filename = (
+        f"{_sanitize_filename_component(test_name)}_"
+        f"{_sanitize_filename_component(group_name)}_gazeplotter_export.csv"
+    )
     headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
     return Response(content=csv_data, media_type="text/csv; charset=utf-8", headers=headers)
 

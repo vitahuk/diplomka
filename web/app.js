@@ -573,6 +573,14 @@ function apiGetSessionEventsExportUrl(sessionId) {
   return `/api/sessions/${encodeURIComponent(sessionId)}/events/export`;
 }
 
+function apiGetTestEventsExportUrl(testId) {
+  return `/api/tests/${encodeURIComponent(testId)}/sessions/events/export`;
+}
+
+function apiGetGroupEventsExportUrl(groupId) {
+  return `/api/groups/${encodeURIComponent(groupId)}/events/export`;
+}
+
 async function apiGetSessionSpatialTrace(sessionId, taskId = null) {
   const query = taskId ? `?task_id=${encodeURIComponent(taskId)}` : "";
   return apiGet(`/api/sessions/${encodeURIComponent(sessionId)}/spatial-trace${query}`);
@@ -3054,17 +3062,61 @@ function closeTimelineModal() {
   hide($("#timelineModal"));
 }
 
+function downloadCsvResponseBlob(blob, response, fallbackFileName) {
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="([^"]+)"/i);
+  const filename = (match && match[1]) ? match[1] : fallbackFileName;
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  return filename;
+}
+
+function openGazeplotterExportConfirmModal(message) {
+  const modal = $("#gazeplotterExportConfirmModal");
+  const textEl = $("#gazeplotterExportConfirmText");
+  const runBtn = $("#gazeplotterExportConfirmRunBtn");
+  const backBtn = $("#gazeplotterExportConfirmBackBtn");
+  const closeBtn = $("#gazeplotterExportConfirmCloseBtn");
+  const backdrop = $("#gazeplotterExportConfirmBackdrop");
+  if (!modal || !runBtn || !backBtn || !closeBtn || !backdrop) {
+    return Promise.resolve(window.confirm(message));
+  }
+
+  if (textEl) textEl.textContent = message;
+  show(modal);
+
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      runBtn.removeEventListener("click", onRun);
+      backBtn.removeEventListener("click", onBack);
+      closeBtn.removeEventListener("click", onBack);
+      backdrop.removeEventListener("click", onBack);
+    };
+    const finish = (result) => {
+      cleanup();
+      hide(modal);
+      resolve(result);
+    };
+    const onRun = () => finish(true);
+    const onBack = () => finish(false);
+
+    runBtn.addEventListener("click", onRun);
+    backBtn.addEventListener("click", onBack);
+    closeBtn.addEventListener("click", onBack);
+    backdrop.addEventListener("click", onBack);
+  });
+}
+
 async function exportTimelineCsvForSelectedSession() {
   const s = state.selectedSession;
   if (!s?.session_id) return;
-
-  const baseName = `gazeplotter_timeline_${s.session_id}`;
-  const suggested = `${baseName}.csv`;
-  const userInput = window.prompt("Exported file name:", suggested);
-  if (userInput === null) return;
-
-  let fileName = String(userInput || "").trim() || suggested;
-  if (!fileName.toLowerCase().endsWith(".csv")) fileName += ".csv";
 
   const btn = $("#exportTimelineCsvBtn");
   const originalLabel = btn?.textContent;
@@ -3080,20 +3132,76 @@ async function exportTimelineCsvForSelectedSession() {
     }
 
     const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    downloadCsvResponseBlob(blob, res, `gazeplotter_timeline_${s.session_id}.csv`);
   } catch (e) {
     window.alert(`Export failed: ${e?.message ?? e}`);
   } finally {
     if (btn) {
       btn.disabled = false;
       btn.textContent = originalLabel || "Export CSV (GazePlotter)";
+    }
+  }
+}
+
+async function exportGazeplotterForCurrentTestSessions() {
+  const testId = state.selectedTestId ?? "TEST";
+  const confirmed = await openGazeplotterExportConfirmModal(
+    "You are about to export a GazePlotter CSV for all sessions in the user experiment. For large files, this may take a while."
+  );
+  if (!confirmed) return;
+
+  const btn = $("#exportTestGazeplotterCsvBtn");
+  const originalLabel = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Exporting…";
+  }
+
+  try {
+    const res = await apiFetch(apiGetTestEventsExportUrl(testId));
+    if (!res.ok) throw new Error(await parseApiError(res));
+    const blob = await res.blob();
+    downloadCsvResponseBlob(blob, res, `test_${testId}_all_sessions_gazeplotter_export.csv`);
+  } catch (e) {
+    window.alert(`Export failed: ${e?.message ?? e}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalLabel || "Export GazePlotter CSV";
+    }
+  }
+}
+
+async function exportGazeplotterForCurrentGroupSessions() {
+  const group = getSelectedGroup();
+  if (!group?.id) {
+    window.alert("Please select a group first.");
+    return;
+  }
+
+  const confirmed = await openGazeplotterExportConfirmModal(
+    "You are about to export a GazePlotter CSV for all sessions in the group. For large files, this may take a while."
+  );
+  if (!confirmed) return;
+
+  const btn = $("#exportGroupGazeplotterCsvBtn");
+  const originalLabel = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Exporting…";
+  }
+
+  try {
+    const res = await apiFetch(apiGetGroupEventsExportUrl(group.id));
+    if (!res.ok) throw new Error(await parseApiError(res));
+    const blob = await res.blob();
+    downloadCsvResponseBlob(blob, res, `group_${group.id}_gazeplotter_export.csv`);
+  } catch (e) {
+    window.alert(`Export failed: ${e?.message ?? e}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalLabel || "Export GazePlotter CSV";
     }
   }
 }
@@ -4973,6 +5081,7 @@ function renderGroupsPage() {
   const socioPanelEl = $("#groupSocioPanel");
   const searchQuery = normalizeSearchText(state.groupsSearchQuery);
   const compareBtn = $("#openGroupsCompareBtn");
+  const exportGroupBtn = $("#exportGroupGazeplotterCsvBtn");
   if (!groupsListEl || !usersPanelEl || !groupMovementBtn) return;
 
   const filteredGroups = state.groups.filter((g) => normalizeSearchText(g.name).includes(searchQuery));
@@ -4992,6 +5101,7 @@ function renderGroupsPage() {
     socioPanelEl?.classList.add("hidden");
     if (editBtn) editBtn.disabled = true;
     if (compareBtn) compareBtn.disabled = true;
+     if (exportGroupBtn) exportGroupBtn.disabled = true;
     return;
   }
 
@@ -5047,6 +5157,7 @@ function renderGroupsPage() {
     socioPanelEl?.classList.add("hidden");
     if (editBtn) editBtn.disabled = true;
     if (compareBtn) compareBtn.disabled = (state.selectedGroupCompareIds ?? []).length < 1;
+    if (exportGroupBtn) exportGroupBtn.disabled = true;
     return;
   }
 
@@ -5061,6 +5172,7 @@ function renderGroupsPage() {
   renderGroupSocioStats(group);
 
   if (editBtn) editBtn.disabled = false;
+  if (exportGroupBtn) exportGroupBtn.disabled = false;
   if (!$("#groupMovementRatiosModal")?.classList.contains("hidden")) {
     renderGroupMovementRatiosModal();
   }
@@ -5861,6 +5973,8 @@ function wireNavButtons() {
     selectTest(state.selectedTestId ?? state.tests[0] ?? null);
   });
 
+  $("#exportTestGazeplotterCsvBtn")?.addEventListener("click", exportGazeplotterForCurrentTestSessions);
+
   $("#openSessionBtn")?.addEventListener("click", () => {
     if (!state.selectedSession) return;
     setPage("group");
@@ -5904,6 +6018,8 @@ function wireNavButtons() {
   $("#editGroupBtn")?.addEventListener("click", () => {
     openGroupEditModal();
   });
+
+  $("#exportGroupGazeplotterCsvBtn")?.addEventListener("click", exportGazeplotterForCurrentGroupSessions);
   
   $("#openGroupsCompareBtn")?.addEventListener("click", () => {
     openGroupCompareModal();
