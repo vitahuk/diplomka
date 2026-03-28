@@ -367,9 +367,9 @@ def build_spatial_trace_for_user(
     track_points: List[List[float]] = []
     track_samples: List[Dict[str, Any]] = []
     popups: List[Dict[str, Any]] = []
-    all_coordinate_points: List[Dict[str, Any]] = []
     last_popup_name: Optional[str] = None
     first_movestart_point: Optional[Dict[str, Any]] = None
+    last_moveend_point: Optional[Dict[str, Any]] = None
     last_zoom: Optional[float] = None
     current_task: Optional[str] = None
 
@@ -395,17 +395,21 @@ def build_spatial_trace_for_user(
             continue
 
         coord = parse_coordinate_detail_if_allowed(event_name, event_detail)
-        if coord is not None:
-            lat, lon = coord
-            all_coordinate_points.append({"lat": lat, "lon": lon, "timestamp": timestamp, "task": row_task})
 
         if event_name == "movestart" and coord is not None and first_movestart_point is None:
             lat, lon = coord
-            first_movestart_point = {"lat": lat, "lon": lon, "timestamp": timestamp, "task": row_task}
+            first_movestart_point = {
+                "lat": lat,
+                "lon": lon,
+                "timestamp": timestamp,
+                "task": row_task,
+                "zoom": last_zoom,
+            }
             continue
 
         if event_name == "moveend" and coord is not None:
             lat, lon = coord
+            last_moveend_point = {"lat": lat, "lon": lon, "timestamp": timestamp, "task": row_task}
 
             viewport = _resolve_viewport_with_orientation(
                 row.get("viewportSize"),
@@ -427,7 +431,7 @@ def build_spatial_trace_for_user(
                 "lat": lat,
                 "lon": lon,
                 "timestamp": timestamp,
-                "zoom": last_zoom,
+                "zoom": last_zoom if last_zoom is not None else 0,
                 "viewportWidth": viewport.width,
                 "viewportHeight": viewport.height,
                 "orientation": orientation,
@@ -458,11 +462,13 @@ def build_spatial_trace_for_user(
         first_lat, first_lon = track_points[0]
         if abs(fs_lat - first_lat) >= 1e-6 or abs(fs_lon - first_lon) >= 1e-6:
             track_points.insert(0, [fs_lat, fs_lon])
+            start_zoom_raw = first_movestart_point.get("zoom")
+            start_zoom = float(start_zoom_raw) if isinstance(start_zoom_raw, (int, float)) and math.isfinite(float(start_zoom_raw)) else 0
             seed_sample = {
                 "lat": fs_lat,
                 "lon": fs_lon,
                 "timestamp": int(first_movestart_point["timestamp"]),
-                "zoom": track_samples[0].get("zoom") if track_samples else last_zoom,
+                "zoom": start_zoom,
                 "viewportWidth": track_samples[0].get("viewportWidth") if track_samples else None,
                 "viewportHeight": track_samples[0].get("viewportHeight") if track_samples else None,
                 "orientation": track_samples[0].get("orientation") if track_samples else None,
@@ -471,12 +477,16 @@ def build_spatial_trace_for_user(
             }
             vw = seed_sample.get("viewportWidth")
             vh = seed_sample.get("viewportHeight")
-            z = seed_sample.get("zoom")
-            if isinstance(vw, int) and isinstance(vh, int) and isinstance(z, (int, float)) and math.isfinite(float(z)):
+            if (
+                isinstance(vw, int)
+                and isinstance(vh, int)
+                and isinstance(start_zoom_raw, (int, float))
+                and math.isfinite(float(start_zoom_raw))
+            ):
                 seed_sample["viewportBounds"] = _compute_viewport_bounds(
                     lat=fs_lat,
                     lon=fs_lon,
-                    zoom=float(z),
+                    zoom=float(start_zoom_raw),
                     viewport_width=vw,
                     viewport_height=vh,
                 )
@@ -486,8 +496,8 @@ def build_spatial_trace_for_user(
         track_points = []
         track_samples = []
     
-    start_point = all_coordinate_points[0] if all_coordinate_points else None
-    end_point = all_coordinate_points[-1] if all_coordinate_points else None
+    start_point = first_movestart_point
+    end_point = last_moveend_point
 
 
     return {

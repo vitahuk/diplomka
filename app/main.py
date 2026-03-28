@@ -10,13 +10,14 @@ import re
 import threading
 import unicodedata
 from collections import Counter
-from io import StringIO
+from io import StringIO, BytesIO
 import shutil
 import time
 import hmac
 import hashlib
 import base64
 import json
+import zipfile
 from typing import Any, Dict, Optional, List
 from uuid import uuid4
 from difflib import SequenceMatcher
@@ -631,6 +632,195 @@ def _resolve_test_export_name(test_id: str) -> str:
         candidate = str(test.get("name") or "").strip() or normalized_test_id
         return candidate
     return normalized_test_id
+
+def _load_spatial_trace_for_session(session: SessionData, task_id: Optional[str] = None) -> Dict[str, Any]:
+    csv_path = Path(session.file_path)
+    if not csv_path.exists():
+        raise HTTPException(status_code=404, detail="CSV file for session not found.")
+
+    usecols = [
+        "timestamp",
+        "event_name",
+        "event_detail",
+        "task",
+        "userId",
+        "userid",
+        "user_id",
+        "viewportSize",
+        "orientation",
+    ]
+    try:
+        df = pd.read_csv(csv_path, usecols=lambda c: c in usecols)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Cannot load spatial data from CSV: {e}")
+
+    user_id = session.user_id
+    user_col = get_user_id_column(df)
+    if not user_id and user_col and not df.empty:
+        first_uid = df.iloc[0].get(user_col)
+        if first_uid is not None and not (isinstance(first_uid, float) and pd.isna(first_uid)):
+            user_id = str(first_uid).strip()
+
+    try:
+        trace = build_spatial_trace_for_user(df, user_id=user_id, task_id=task_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    user_experiment = _resolve_test_export_name(session.test_id)
+    return {
+        "session_id": session.session_id,
+        "user_id": user_id,
+        "user_experiment": user_experiment,
+        "spatial": trace,
+    }
+
+
+def _build_viewport_polygon_coordinates(bounds: Any) -> List[List[List[float]]]:
+    if not isinstance(bounds, list) or len(bounds) != 2:
+        return []
+    sw, ne = bounds
+    if not isinstance(sw, list) or not isinstance(ne, list) or len(sw) < 2 or len(ne) < 2:
+        return []
+
+    try:
+        south = float(sw[0])
+        west = float(sw[1])
+        north = float(ne[0])
+        east = float(ne[1])
+    except (TypeError, ValueError):
+        return []
+
+    def _build_ring(ring_west: float, ring_east: float) -> List[List[float]]:
+        return [
+            [ring_west, south],
+            [ring_east, south],
+            [ring_east, north],
+            [ring_west, north],
+            [ring_west, south],
+        ]
+
+    if west > east:
+        return [_build_ring(west, 180.0), _build_ring(-180.0, east)]
+    return [_build_ring(west, east)]
+
+
+def _build_spatial_export_collections(items: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    trajectory_features: List[Dict[str, Any]] = []
+    trajectory_points_features: List[Dict[str, Any]] = []
+    viewport_features: List[Dict[str, Any]] = []
+
+    for item in items:
+        spatial = item.get("spatial") if isinstance(item.get("spatial"), dict) else {}
+        session_id = item.get("session_id")
+        base_props = {
+            "session_id": session_id,
+            "user_id": item.get("user_id"),
+            "user_experiment": item.get("user_experiment"),
+        }
+        if "group" in item:
+            base_props["group"] = item.get("group")
+
+        track = spatial.get("track") if isinstance(spatial.get("track"), dict) else {}
+        points = track.get("points") if isinstance(track.get("points"), list) else []
+        coordinates: List[List[float]] = []
+        for xy in points:
+            if not isinstance(xy, list) or len(xy) < 2:
+                continue
+            try:
+                lat = float(xy[0])
+                lon = float(xy[1])
+            except (TypeError, ValueError):
+                continue
+            coordinates.append([lon, lat])
+        if len(coordinates) >= 2:
+            trajectory_features.append({
+                "type": "Feature",
+                "geometry": {"type": "LineString", "coordinates": coordinates},
+                "properties": dict(base_props),
+            })
+
+        samples = track.get("samples") if isinstance(track.get("samples"), list) else []
+        movement_endpoints = spatial.get("movementEndpoints") if isinstance(spatial.get("movementEndpoints"), dict) else {}
+        start_endpoint = movement_endpoints.get("start") if isinstance(movement_endpoints.get("start"), dict) else None
+        end_endpoint = movement_endpoints.get("end") if isinstance(movement_endpoints.get("end"), dict) else None
+
+        def _resolve_endpoint_type(sample_payload: Dict[str, Any]) -> str:
+            sample_ts = sample_payload.get("timestamp")
+            sample_lat = sample_payload.get("lat")
+            sample_lon = sample_payload.get("lon")
+            for endpoint_kind, endpoint in (("start", start_endpoint), ("end", end_endpoint)):
+                if not endpoint:
+                    continue
+                if endpoint.get("timestamp") != sample_ts:
+                    continue
+                if endpoint.get("lat") != sample_lat or endpoint.get("lon") != sample_lon:
+                    continue
+                return endpoint_kind
+            return "trajectory_point"
+        
+        for index, sample in enumerate(samples):
+            if not isinstance(sample, dict):
+                continue
+            try:
+                lat = float(sample.get("lat"))
+                lon = float(sample.get("lon"))
+            except (TypeError, ValueError):
+                continue
+            point_props = {
+                **base_props,
+                "point_type": _resolve_endpoint_type(sample),
+                "index": index,
+                "t": int(sample.get("timestamp")) if sample.get("timestamp") is not None else None,
+                "z": float(sample.get("zoom")) if sample.get("zoom") is not None else None,
+                "task": sample.get("task"),
+                "viewportBounds": sample.get("viewportBounds") if isinstance(sample.get("viewportBounds"), list) else None,
+            }
+            trajectory_points_features.append({
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [lon, lat]},
+                "properties": point_props,
+            })
+
+            rings = _build_viewport_polygon_coordinates(sample.get("viewportBounds"))
+            if rings:
+                viewport_features.append({
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "MultiPolygon" if len(rings) > 1 else "Polygon",
+                        "coordinates": [[ring] for ring in rings] if len(rings) > 1 else [rings[0]],
+                    },
+                    "properties": {
+                        **base_props,
+                        "point_index": index,
+                        "t": int(sample.get("timestamp")) if sample.get("timestamp") is not None else None,
+                        "z": float(sample.get("zoom")) if sample.get("zoom") is not None else None,
+                        "task": sample.get("task"),
+                    },
+                })
+
+    return {
+        "trajectory": {"type": "FeatureCollection", "features": trajectory_features},
+        "trajectory_points": {"type": "FeatureCollection", "features": trajectory_points_features},
+        "viewports": {"type": "FeatureCollection", "features": viewport_features},
+    }
+
+
+def _build_spatial_export_zip(filename_base: str, collections: Dict[str, Dict[str, Any]]) -> Response:
+    files = [
+        (f"{filename_base}_trajectory.geojson", collections["trajectory"]),
+        (f"{filename_base}_trajectory points.geojson", collections["trajectory_points"]),
+        (f"{filename_base}_viewports.geojson", collections["viewports"]),
+    ]
+
+    zip_buffer = BytesIO()
+    with zipfile.ZipFile(zip_buffer, mode="w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for filename, payload in files:
+            archive.writestr(filename, json.dumps(payload, ensure_ascii=False))
+    zip_buffer.seek(0)
+
+    zip_name = f"{filename_base}_spatial_data.zip"
+    headers = {"Content-Disposition": f'attachment; filename="{zip_name}"'}
+    return Response(content=zip_buffer.getvalue(), media_type="application/zip", headers=headers)
 
 INTERVAL_EVENT_NAME_MAP: Dict[str, str] = {
     "MOVE": "move",
@@ -1583,44 +1773,48 @@ def get_session_spatial_trace(session_id: str, task_id: Optional[str] = None):
     s = STORE.get(session_id)
     if not s:
         raise HTTPException(status_code=404, detail="Session not found.")
+    return _load_spatial_trace_for_session(s, task_id=task_id)
 
-    csv_path = Path(s.file_path)
-    if not csv_path.exists():
-        raise HTTPException(status_code=404, detail="CSV file for session not found.")
 
-    usecols = [
-        "timestamp",
-        "event_name",
-        "event_detail",
-        "task",
-        "userId",
-        "userid",
-        "user_id",
-        "viewportSize",
-        "orientation",
-    ]
-    try:
-        df = pd.read_csv(csv_path, usecols=lambda c: c in usecols)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Cannot load spatial data from CSV: {e}")
+@app.get("/api/tests/{test_id}/sessions/spatial/export")
+def export_test_sessions_spatial_data(test_id: str):
+    sessions = STORE.list_sessions(test_id=test_id)
+    ordered_sessions = sorted(sessions.values(), key=lambda x: x.session_id)
+    if not ordered_sessions:
+        raise HTTPException(status_code=404, detail="No sessions found for this user experiment.")
 
-    user_id = s.user_id
-    user_col = get_user_id_column(df)
-    if not user_id and user_col and not df.empty:
-        first_uid = df.iloc[0].get(user_col)
-        if first_uid is not None and not (isinstance(first_uid, float) and pd.isna(first_uid)):
-            user_id = str(first_uid).strip()
+    items = [_load_spatial_trace_for_session(session) for session in ordered_sessions]
+    collections = _build_spatial_export_collections(items)
+    experiment_name = _resolve_test_export_name(test_id)
+    filename_base = f"{_sanitize_filename_component(experiment_name)}_all sessions"
+    return _build_spatial_export_zip(filename_base, collections)
 
-    try:
-        trace = build_spatial_trace_for_user(df, user_id=user_id, task_id=task_id)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
 
-    return {
-        "session_id": s.session_id,
-        "user_id": s.user_id,
-        "spatial": trace,
-    }
+@app.get("/api/groups/{group_id}/sessions/spatial/export")
+def export_group_sessions_spatial_data(group_id: str):
+    group = next((g for g in list_groups() if g.get("id") == group_id), None)
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found.")
+
+    session_ids = group.get("session_ids", []) if isinstance(group.get("session_ids"), list) else []
+    if not session_ids:
+        raise HTTPException(status_code=400, detail="Group contains no sessions.")
+
+    sessions_by_id = STORE.list_sessions(session_ids=session_ids)
+    ordered_sessions = [sessions_by_id[sid] for sid in session_ids if sid in sessions_by_id]
+    if not ordered_sessions:
+        raise HTTPException(status_code=404, detail="No sessions found for this group.")
+
+    group_name = str(group.get("name") or group_id).strip()
+    items: List[Dict[str, Any]] = []
+    for session in ordered_sessions:
+        item = _load_spatial_trace_for_session(session)
+        item["group"] = group_name
+        items.append(item)
+
+    collections = _build_spatial_export_collections(items)
+    filename_base = _sanitize_filename_component(group_name)
+    return _build_spatial_export_zip(filename_base, collections)
 
 
 @app.delete("/api/tests/{test_id}/sessions")

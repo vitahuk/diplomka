@@ -581,6 +581,14 @@ function apiGetGroupEventsExportUrl(groupId) {
   return `/api/groups/${encodeURIComponent(groupId)}/events/export`;
 }
 
+function apiGetTestSpatialExportUrl(testId) {
+  return `/api/tests/${encodeURIComponent(testId)}/sessions/spatial/export`;
+}
+
+function apiGetGroupSpatialExportUrl(groupId) {
+  return `/api/groups/${encodeURIComponent(groupId)}/sessions/spatial/export`;
+}
+
 async function apiGetSessionSpatialTrace(sessionId, taskId = null) {
   const query = taskId ? `?task_id=${encodeURIComponent(taskId)}` : "";
   return apiGet(`/api/sessions/${encodeURIComponent(sessionId)}/spatial-trace${query}`);
@@ -2376,10 +2384,30 @@ function renderTaskSpatialTraceToMap(spatialPayload) {
     layer.bindTooltip(label, { direction: "top", offset: [0, -8] });
   });
   state.taskMap.endpointLayer?.eachLayer?.((layer) => {
-    const kind = layer?.feature?.properties?.kind ?? "Point";
+    const kind = layer?.feature?.properties?.kind ?? "Trajectory point";
     const ts = layer?.feature?.properties?.timestamp;
-    const label = Number.isFinite(Number(ts)) ? `${kind} (${Number(ts)})` : String(kind);
-    layer.bindTooltip(label, { direction: "top", offset: [0, -8] });
+    const zoom = layer?.feature?.properties?.zoom;
+    const bounds = layer?.feature?.properties?.viewportBounds;
+    const labelParts = [];
+    if (Number.isFinite(Number(ts))) labelParts.push(`t=${Number(ts)}`);
+    if (Number.isFinite(Number(zoom))) labelParts.push(`z=${Number(zoom)}`);
+    const baseLabel = labelParts.join(" · ") || "Trajectory point";
+    layer.bindTooltip(`${kind} · ${baseLabel}`, { direction: "top", offset: [0, -8] });
+
+    const rect = makeViewportRectangle(bounds);
+    if (rect && viewportLayer?.addLayer) {
+      rect.__isHovered = false;
+      viewportLayer.addLayer(rect);
+      state.taskMap.viewportRectangles.push(rect);
+      layer.on("mouseover", () => {
+        rect.__isHovered = true;
+        updateViewportRectanglesVisibility(state.taskMap, getTaskMapControlsState());
+      });
+      layer.on("mouseout", () => {
+        rect.__isHovered = false;
+        updateViewportRectanglesVisibility(state.taskMap, getTaskMapControlsState());
+      });
+    }
   });
 
   state.taskMap.trajectoryPointsLayer?.eachLayer?.((layer) => {
@@ -3206,6 +3234,69 @@ async function exportGazeplotterForCurrentGroupSessions() {
   }
 }
 
+async function exportSpatialForCurrentTestSessions() {
+  const testId = state.selectedTestId ?? "TEST";
+  const confirmed = await openGazeplotterExportConfirmModal(
+    "You are about to export spatial data for all sessions in the user experiment. For large files, this may take a while."
+  );
+  if (!confirmed) return;
+
+  const btn = $("#exportTestSpatialDataBtn");
+  const originalLabel = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Exporting…";
+  }
+
+  try {
+    const res = await apiFetch(apiGetTestSpatialExportUrl(testId));
+    if (!res.ok) throw new Error(await parseApiError(res));
+    const blob = await res.blob();
+    downloadCsvResponseBlob(blob, res, `test_${testId}_spatial_data.zip`);
+  } catch (e) {
+    window.alert(`Export failed: ${e?.message ?? e}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalLabel || "Export spatial data";
+    }
+  }
+}
+
+async function exportSpatialForCurrentGroupSessions() {
+  const group = getSelectedGroup();
+  if (!group?.id) {
+    window.alert("Please select a group first.");
+    return;
+  }
+
+  const confirmed = await openGazeplotterExportConfirmModal(
+    "You are about to export spatial data for all sessions in the group. For large files, this may take a while."
+  );
+  if (!confirmed) return;
+
+  const btn = $("#exportGroupSpatialDataBtn");
+  const originalLabel = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "Exporting…";
+  }
+
+  try {
+    const res = await apiFetch(apiGetGroupSpatialExportUrl(group.id));
+    if (!res.ok) throw new Error(await parseApiError(res));
+    const blob = await res.blob();
+    downloadCsvResponseBlob(blob, res, `group_${group.id}_spatial_data.zip`);
+  } catch (e) {
+    window.alert(`Export failed: ${e?.message ?? e}`);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalLabel || "Export spatial data";
+    }
+  }
+}
+
 function getMapControlsState() {
   return {
     showPoints: $("#mapShowPoints")?.checked ?? true,
@@ -3476,7 +3567,17 @@ function makeViewportRectangle(bounds) {
 
 function buildEndpointFeatureCollection(spatial) {
   const endpoints = spatial?.movementEndpoints ?? {};
+  const samples = Array.isArray(spatial?.track?.samples) ? spatial.track.samples : [];
   const out = [];
+
+  const findLinkedSample = (point) => {
+    if (!point) return null;
+    return samples.find((sample) => (
+      sample?.timestamp === point?.timestamp
+      && sample?.lat === point?.lat
+      && sample?.lon === point?.lon
+    )) ?? null;
+  };
 
   [
     ["Start", endpoints?.start],
@@ -3486,6 +3587,7 @@ function buildEndpointFeatureCollection(spatial) {
     const lat = Number(point.lat);
     const lon = Number(point.lon);
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    const linkedSample = findLinkedSample(point);
 
     out.push({
       type: "Feature",
@@ -3493,6 +3595,9 @@ function buildEndpointFeatureCollection(spatial) {
       properties: {
         kind,
         timestamp: Number(point.timestamp),
+        zoom: Number.isFinite(Number(linkedSample?.zoom)) ? Number(linkedSample.zoom) : null,
+        task: linkedSample?.task ?? point?.task ?? null,
+        viewportBounds: Array.isArray(linkedSample?.viewportBounds) ? linkedSample.viewportBounds : null,
       },
     });
   });
@@ -3543,10 +3648,30 @@ function renderSpatialTraceToMap(spatialPayload) {
   });
 
   state.map.endpointLayer?.eachLayer?.((layer) => {
-    const kind = layer?.feature?.properties?.kind ?? "Point";
+    const kind = layer?.feature?.properties?.kind ?? "Trajectory point";
     const ts = layer?.feature?.properties?.timestamp;
-    const label = Number.isFinite(Number(ts)) ? `${kind} (${Number(ts)})` : String(kind);
-    layer.bindTooltip(label, { direction: "top", offset: [0, -8] });
+    const zoom = layer?.feature?.properties?.zoom;
+    const bounds = layer?.feature?.properties?.viewportBounds;
+    const labelParts = [];
+    if (Number.isFinite(Number(ts))) labelParts.push(`t=${Number(ts)}`);
+    if (Number.isFinite(Number(zoom))) labelParts.push(`z=${Number(zoom)}`);
+    const baseLabel = labelParts.join(" · ") || "Trajectory point";
+    layer.bindTooltip(`${kind} · ${baseLabel}`, { direction: "top", offset: [0, -8] });
+
+    const rect = makeViewportRectangle(bounds);
+    if (rect && viewportLayer?.addLayer) {
+      rect.__isHovered = false;
+      viewportLayer.addLayer(rect);
+      state.map.viewportRectangles.push(rect);
+      layer.on("mouseover", () => {
+        rect.__isHovered = true;
+        updateViewportRectanglesVisibility(state.map, getMapControlsState());
+      });
+      layer.on("mouseout", () => {
+        rect.__isHovered = false;
+        updateViewportRectanglesVisibility(state.map, getMapControlsState());
+      });
+    }
   });
 
   state.map.trajectoryPointsLayer?.eachLayer?.((layer) => {
@@ -3749,10 +3874,28 @@ function buildSessionTrajectoryPointsExportGeoJson(payload) {
   const spatial = payload?.spatial ?? {};
   const samples = Array.isArray(spatial?.track?.samples) ? spatial.track.samples : [];
   const endpoints = spatial?.movementEndpoints ?? {};
-  const endpointItems = [
-    { kind: "Start", point: endpoints?.start },
-    { kind: "End", point: endpoints?.end },
-  ];
+  const startPoint = endpoints?.start ?? null;
+  const endPoint = endpoints?.end ?? null;
+
+  const resolvePointType = (sample) => {
+    if (
+      startPoint
+      && startPoint?.timestamp === sample?.timestamp
+      && startPoint?.lat === sample?.lat
+      && startPoint?.lon === sample?.lon
+    ) {
+      return "start";
+    }
+    if (
+      endPoint
+      && endPoint?.timestamp === sample?.timestamp
+      && endPoint?.lat === sample?.lat
+      && endPoint?.lon === sample?.lon
+    ) {
+      return "end";
+    }
+    return "trajectory_point";
+  };
 
   const features = samples
     .filter((sample) => Number.isFinite(Number(sample?.lat)) && Number.isFinite(Number(sample?.lon)))
@@ -3760,27 +3903,16 @@ function buildSessionTrajectoryPointsExportGeoJson(payload) {
       type: "Feature",
       geometry: { type: "Point", coordinates: [Number(sample.lon), Number(sample.lat)] },
       properties: {
-        point_type: "trajectory_point",
+        point_type: resolvePointType(sample),
+        session_id: payload?.session_id ?? null,
+        user_id: payload?.user_id ?? null,
         index,
         t: Number.isFinite(Number(sample?.timestamp)) ? Number(sample.timestamp) : null,
         z: Number.isFinite(Number(sample?.zoom)) ? Number(sample.zoom) : null,
         task: sample?.task ?? null,
+        viewportBounds: Array.isArray(sample?.viewportBounds) ? sample.viewportBounds : null,
       },
     }));
-
-  endpointItems.forEach(({ kind, point }) => {
-    if (!Number.isFinite(Number(point?.lat)) || !Number.isFinite(Number(point?.lon))) return;
-    features.push({
-      type: "Feature",
-      geometry: { type: "Point", coordinates: [Number(point.lon), Number(point.lat)] },
-      properties: {
-        point_type: kind.toLowerCase(),
-        t: Number.isFinite(Number(point?.timestamp)) ? Number(point.timestamp) : null,
-        z: null,
-        task: point?.task ?? null,
-      },
-    });
-  });
 
   return { type: "FeatureCollection", features };
 }
@@ -3799,6 +3931,8 @@ function buildSessionViewportExportGeoJson(payload) {
           coordinates: rings.length > 1 ? rings.map((ring) => [ring]) : [rings[0]],
         },
         properties: {
+          session_id: payload?.session_id ?? null,
+          user_id: payload?.user_id ?? null,
           point_index: index,
           t: Number.isFinite(Number(sample?.timestamp)) ? Number(sample.timestamp) : null,
           z: Number.isFinite(Number(sample?.zoom)) ? Number(sample.zoom) : null,
@@ -3814,6 +3948,8 @@ function buildSessionViewportExportGeoJson(payload) {
 function exportCurrentSessionMapGeoJson(kind) {
   const payload = state.map.currentSpatialPayload;
   const sessionId = state.selectedSession?.session_id ?? payload?.session_id ?? "session";
+  const experimentName = payload?.user_experiment ?? getCurrentTestDisplayName() ?? "user_experiment";
+  const fileNameBase = `${experimentName}_session ${sessionId}`;
   if (!payload) {
     window.alert("No map data is loaded yet.");
     return;
@@ -3822,17 +3958,17 @@ function exportCurrentSessionMapGeoJson(kind) {
   const exporters = {
     trajectory: {
       build: buildSessionTrajectoryExportGeoJson,
-      fileName: `session_${sessionId}_trajectory`,
+      fileName: `${fileNameBase}_trajectory`,
       emptyMessage: "No trajectory is available for export.",
     },
     trajectoryPoints: {
       build: buildSessionTrajectoryPointsExportGeoJson,
-      fileName: `session_${sessionId}_trajectory_points`,
+      fileName: `${fileNameBase}_trajectory points`,
       emptyMessage: "No trajectory points are available for export.",
     },
     viewports: {
       build: buildSessionViewportExportGeoJson,
-      fileName: `session_${sessionId}_viewports`,
+      fileName: `${fileNameBase}_viewports`,
       emptyMessage: "No viewports are available for export.",
     },
   };
@@ -5082,6 +5218,7 @@ function renderGroupsPage() {
   const searchQuery = normalizeSearchText(state.groupsSearchQuery);
   const compareBtn = $("#openGroupsCompareBtn");
   const exportGroupBtn = $("#exportGroupGazeplotterCsvBtn");
+  const exportGroupSpatialBtn = $("#exportGroupSpatialDataBtn");
   if (!groupsListEl || !usersPanelEl || !groupMovementBtn) return;
 
   const filteredGroups = state.groups.filter((g) => normalizeSearchText(g.name).includes(searchQuery));
@@ -5102,6 +5239,7 @@ function renderGroupsPage() {
     if (editBtn) editBtn.disabled = true;
     if (compareBtn) compareBtn.disabled = true;
      if (exportGroupBtn) exportGroupBtn.disabled = true;
+     if (exportGroupSpatialBtn) exportGroupSpatialBtn.disabled = true;
     return;
   }
 
@@ -5158,6 +5296,7 @@ function renderGroupsPage() {
     if (editBtn) editBtn.disabled = true;
     if (compareBtn) compareBtn.disabled = (state.selectedGroupCompareIds ?? []).length < 1;
     if (exportGroupBtn) exportGroupBtn.disabled = true;
+    if (exportGroupSpatialBtn) exportGroupSpatialBtn.disabled = true;
     return;
   }
 
@@ -5173,6 +5312,7 @@ function renderGroupsPage() {
 
   if (editBtn) editBtn.disabled = false;
   if (exportGroupBtn) exportGroupBtn.disabled = false;
+  if (exportGroupSpatialBtn) exportGroupSpatialBtn.disabled = false;
   if (!$("#groupMovementRatiosModal")?.classList.contains("hidden")) {
     renderGroupMovementRatiosModal();
   }
@@ -5974,6 +6114,7 @@ function wireNavButtons() {
   });
 
   $("#exportTestGazeplotterCsvBtn")?.addEventListener("click", exportGazeplotterForCurrentTestSessions);
+  $("#exportTestSpatialDataBtn")?.addEventListener("click", exportSpatialForCurrentTestSessions);
 
   $("#openSessionBtn")?.addEventListener("click", () => {
     if (!state.selectedSession) return;
@@ -6020,6 +6161,7 @@ function wireNavButtons() {
   });
 
   $("#exportGroupGazeplotterCsvBtn")?.addEventListener("click", exportGazeplotterForCurrentGroupSessions);
+  $("#exportGroupSpatialDataBtn")?.addEventListener("click", exportSpatialForCurrentGroupSessions);
   
   $("#openGroupsCompareBtn")?.addEventListener("click", () => {
     openGroupCompareModal();
