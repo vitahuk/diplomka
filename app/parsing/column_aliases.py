@@ -42,8 +42,12 @@ def resolve_column_aliases(
     }
     resolved: Dict[str, str] = {}
     for canonical, aliases in alias_map.items():
-        candidates = {canonical, *aliases}
-        for alias in candidates:
+        canonical_found = normalized_columns.get(_normalize_column_name(canonical))
+        if canonical_found is not None:
+            resolved[canonical] = canonical_found
+            continue
+
+        for alias in aliases:
             found = normalized_columns.get(_normalize_column_name(alias))
             if found is not None:
                 resolved[canonical] = found

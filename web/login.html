@@ -92,7 +92,11 @@
         if (!res.ok) {
           let err = {};
           try { err = await res.json(); } catch { }
-          throw new Error(err.detail ?? res.statusText);
+          const detail = err?.detail;
+          const message = typeof detail === "string"
+            ? detail
+            : (detail?.message ?? detail?.detail ?? null);
+          throw new Error(message ?? res.statusText);
         }
 
         window.location.replace("/");

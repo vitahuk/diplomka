@@ -123,6 +123,24 @@ def _normalize_orientation(v: Any) -> Optional[str]:
         return "portrait-primary"
     return s
 
+ORIENTATION_DETAIL_PATTERN = re.compile(r"\b(landscape|portrait)\s*[-_ ]?\s*(primary|secondary)\b", re.IGNORECASE)
+
+def _extract_orientation_from_event_detail(event_detail: Any) -> Optional[str]:
+    """
+    orientation change event_detail může být ve volném textu:
+    např. "portrait-primary, 90 degrees." nebo "landscape secondary".
+    Vrací normalizaci pro výpočet viewportu (landscape/portrait primary).
+    """
+    if event_detail is None or (isinstance(event_detail, float) and pd.isna(event_detail)):
+        return None
+    s = str(event_detail).strip()
+    if not s:
+        return None
+    match = ORIENTATION_DETAIL_PATTERN.search(s)
+    if not match:
+        return None
+    axis = match.group(1).lower()
+    return f"{axis}-primary"
 
 def _resolve_viewport_with_orientation(
     viewport_raw: Any,
@@ -372,12 +390,28 @@ def build_spatial_trace_for_user(
     last_moveend_point: Optional[Dict[str, Any]] = None
     last_zoom: Optional[float] = None
     current_task: Optional[str] = None
+    current_orientation: Optional[str] = None
+    orientation_driven_by_events = False
 
     for _, row in data.iterrows():
         event_name = str(row.get("event_name", "")).strip()
+        event_name_lower = event_name.lower()
         event_detail = row.get("event_detail")
         timestamp = int(row.get("_timestamp"))
         row_task, current_task = _resolve_row_task_id(row, current_task)
+        row_orientation = _normalize_orientation(row.get("orientation"))
+        if not orientation_driven_by_events and row_orientation is not None:
+            current_orientation = row_orientation
+
+        if event_name_lower == "orientation change":
+            detail_orientation = _extract_orientation_from_event_detail(event_detail)
+            if detail_orientation is not None:
+                current_orientation = detail_orientation
+                orientation_driven_by_events = True
+            elif row_orientation is not None:
+                current_orientation = row_orientation
+                orientation_driven_by_events = True
+            continue
 
         if event_name == "popupopen:name":
             if event_detail is None or (isinstance(event_detail, float) and pd.isna(event_detail)):
@@ -413,9 +447,9 @@ def build_spatial_trace_for_user(
 
             viewport = _resolve_viewport_with_orientation(
                 row.get("viewportSize"),
-                row.get("orientation"),
+                current_orientation,
             )
-            orientation = _normalize_orientation(row.get("orientation"))
+            orientation = current_orientation
 
             viewport_bounds = None
             if viewport.width and viewport.height and last_zoom is not None:
@@ -475,18 +509,30 @@ def build_spatial_trace_for_user(
                 "viewportBounds": None,
                 "task": first_movestart_point.get("task"),
             }
+            effective_zoom_raw = start_zoom_raw
+            if not (isinstance(effective_zoom_raw, (int, float)) and math.isfinite(float(effective_zoom_raw))):
+                first_sample = track_samples[0] if track_samples else None
+                if (
+                    isinstance(first_sample, dict)
+                    and abs(float(first_sample.get("lat", float("nan"))) - fs_lat) < 1e-6
+                    and abs(float(first_sample.get("lon", float("nan"))) - fs_lon) < 1e-6
+                ):
+                    first_sample_zoom = first_sample.get("zoom")
+                    if isinstance(first_sample_zoom, (int, float)) and math.isfinite(float(first_sample_zoom)) and float(first_sample_zoom) > 0:
+                        effective_zoom_raw = float(first_sample_zoom)
+                        seed_sample["zoom"] = float(first_sample_zoom)
             vw = seed_sample.get("viewportWidth")
             vh = seed_sample.get("viewportHeight")
             if (
                 isinstance(vw, int)
                 and isinstance(vh, int)
-                and isinstance(start_zoom_raw, (int, float))
-                and math.isfinite(float(start_zoom_raw))
+                and isinstance(effective_zoom_raw, (int, float))
+                and math.isfinite(float(effective_zoom_raw))
             ):
                 seed_sample["viewportBounds"] = _compute_viewport_bounds(
                     lat=fs_lat,
                     lon=fs_lon,
-                    zoom=float(start_zoom_raw),
+                    zoom=float(effective_zoom_raw),
                     viewport_width=vw,
                     viewport_height=vh,
                 )

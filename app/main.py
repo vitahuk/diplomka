@@ -18,6 +18,7 @@ import hashlib
 import base64
 import json
 import zipfile
+import logging
 from typing import Any, Dict, Optional, List
 from uuid import uuid4
 from difflib import SequenceMatcher
@@ -60,6 +61,8 @@ from app.normalization.nationality import normalize_nationality
 app = FastAPI(title="Mishpink data explorer")
 
 app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
+
+logger = logging.getLogger(__name__)
 
 UPLOAD_JOBS: Dict[str, Dict[str, Any]] = {}
 UPLOAD_JOBS_LOCK = threading.Lock()
@@ -230,6 +233,7 @@ def _create_upload_job(*, kind: str, filename: str, test_id: str) -> str:
             "status": "uploaded",
             "message": "Upload successful.",
             "error": None,
+            "error_code": None,
             "result": None,
         }
     return job_id
@@ -247,6 +251,30 @@ def _get_upload_job(job_id: str) -> Optional[Dict[str, Any]]:
     with UPLOAD_JOBS_LOCK:
         job = UPLOAD_JOBS.get(job_id)
         return dict(job) if job else None
+    
+def _extract_error_code(detail: Any) -> Optional[str]:
+    if isinstance(detail, dict):
+        code = detail.get("error_code")
+        if isinstance(code, str) and code.strip():
+            return code.strip()
+    return None
+
+
+def _extract_error_message(detail: Any, fallback: str = "Request failed.") -> str:
+    if isinstance(detail, dict):
+        message = detail.get("message") or detail.get("detail")
+        if isinstance(message, str) and message.strip():
+            return message.strip()
+    if isinstance(detail, str) and detail.strip():
+        return detail.strip()
+    return fallback
+
+
+def _raise_api_error(status_code: int, message: str, *, error_code: Optional[str] = None) -> None:
+    payload: Dict[str, str] = {"message": message}
+    if error_code:
+        payload["error_code"] = error_code
+    raise HTTPException(status_code=status_code, detail=payload)
 
 def _read_soc_demo_row(csv_path: Path) -> Dict[str, Any]:
     """
@@ -299,6 +327,19 @@ def _read_soc_demo_rows_by_user(df: pd.DataFrame, user_col: str) -> Dict[str, Di
 def _sanitize_filename_component(value: str) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9_-]+", "_", value).strip("_")
     return cleaned or "user"
+
+def _build_session_id_for_test_user(test_id: str, user_id: Any) -> str:
+    normalized_test_id = str(test_id or "TEST").strip() or "TEST"
+    normalized_user_id = _normalize_user_id(user_id)
+    if not normalized_user_id:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Unable to determine User ID for this upload. "
+                "Session identity now requires test_id + user_id."
+            ),
+        )
+    return f"{_sanitize_filename_component(normalized_test_id)}__{_sanitize_filename_component(normalized_user_id)}"
 
 def _read_session_events_df(csv_path: Path) -> pd.DataFrame:
     usecols = ["timestamp", "event_name", "event_detail", "task"]
@@ -1310,6 +1351,9 @@ def _build_group_answers_payload(group: Dict[str, Any]) -> Dict[str, Any]:
 
 def _process_single_csv(dst: Path, filename: str, test_id: str) -> Dict[str, Any]:
     parsed_session = parse_session(str(dst), filename)
+    normalized_test_id = str(test_id or "TEST").strip() or "TEST"
+    resolved_user_id = _normalize_user_id(parsed_session.user_id)
+    session_id = _build_session_id_for_test_user(normalized_test_id, resolved_user_id)
 
     tasks: List[str] = list_task_ids(parsed_session)
     primary_task: Optional[str] = tasks[0] if tasks else None
@@ -1334,25 +1378,26 @@ def _process_single_csv(dst: Path, filename: str, test_id: str) -> Dict[str, Any
     )
 
     session_meta = SessionData(
-        session_id=parsed_session.session_id,
-        test_id=test_id or "TEST",
+        session_id=session_id,
+        test_id=normalized_test_id,
         file_path=str(dst),
-        user_id=parsed_session.user_id,
+        user_id=resolved_user_id,
         task=primary_task,
         stats=stats,
     )
     STORE.upsert(session_meta)
 
     return {
-        "session_id": parsed_session.session_id,
-        "user_id": parsed_session.user_id,
-        "test_id": test_id or "TEST",
+        "session_id": session_id,
+        "user_id": resolved_user_id,
+        "test_id": normalized_test_id,
         "task": primary_task,
         "tasks": tasks,
     }
 
 
 def _process_bulk_csv(dst: Path, filename: str, test_id: str) -> Dict[str, Any]:
+    normalized_test_id = str(test_id or "TEST").strip() or "TEST"
     df = pd.read_csv(dst, low_memory=False)
     age_col = resolve_single_column(df.columns, "age", SOC_DEMO_COLUMN_ALIASES["age"])
     if age_col:
@@ -1361,16 +1406,15 @@ def _process_bulk_csv(dst: Path, filename: str, test_id: str) -> Dict[str, Any]:
 
     user_col = get_user_id_column(df)
     if not user_col:
-        raise HTTPException(status_code=400, detail="CSV does not contain the required column 'userid'.")
+        _raise_api_error(400, "CSV must include the required 'userid' column.", error_code="MISSING_USERID_COLUMN")
 
     df["_user_id_norm"] = df[user_col].apply(_normalize_user_id)
     df = df[df["_user_id_norm"].notna()]
     if df.empty:
-        raise HTTPException(status_code=400, detail="CSV does not contain any valid values in the 'userid' column.")
+        _raise_api_error(400, "CSV does not contain valid values in the 'userid' column.", error_code="INVALID_USERID_VALUES")
 
     soc_rows = _read_soc_demo_rows_by_user(df, "_user_id_norm")
-    base_session_id = infer_session_id_from_filename(filename)
-
+    
     sessions_out: List[Dict[str, Any]] = []
 
     for user_id, df_user in df.groupby("_user_id_norm", sort=False):
@@ -1381,7 +1425,7 @@ def _process_bulk_csv(dst: Path, filename: str, test_id: str) -> Dict[str, Any]:
         user_path = UPLOAD_DIR / user_filename
         df_user.to_csv(user_path, index=False)
 
-        session_id = f"{base_session_id}__{user_suffix}"
+        session_id = _build_session_id_for_test_user(normalized_test_id, user_id)
         parsed_session = parse_session_df(
             df_user,
             user_filename,
@@ -1413,7 +1457,7 @@ def _process_bulk_csv(dst: Path, filename: str, test_id: str) -> Dict[str, Any]:
 
         session_meta = SessionData(
             session_id=parsed_session.session_id,
-            test_id=test_id or "TEST",
+            test_id=normalized_test_id,
             file_path=str(user_path),
             user_id=parsed_session.user_id,
             task=primary_task,
@@ -1423,7 +1467,7 @@ def _process_bulk_csv(dst: Path, filename: str, test_id: str) -> Dict[str, Any]:
 
         sessions_out.append({
             "session_id": parsed_session.session_id,
-            "test_id": test_id or "TEST",
+            "test_id": normalized_test_id,
             "user_id": parsed_session.user_id,
             "task": primary_task,
             "tasks": tasks,
@@ -1461,14 +1505,17 @@ def _run_upload_job(job_id: str, *, kind: str, dst: Path, filename: str, test_id
             job_id,
             status="failed",
             message="CSV processing failed.",
-            error=exc.detail,
+            error=_extract_error_message(exc.detail, "CSV processing failed."),
+            error_code=_extract_error_code(exc.detail),
         )
-    except Exception as exc:
+    except Exception:
+        logger.exception("Unexpected error while processing upload job", extra={"job_id": job_id, "kind": kind})
         _update_upload_job(
             job_id,
             status="failed",
             message="CSV processing failed.",
-            error=str(exc),
+            error="Unexpected server error while processing CSV.",
+            error_code="UPLOAD_PROCESSING_ERROR",
         )
 
 
@@ -1499,7 +1546,7 @@ async def upload_csv(
 ):
     filename = (file.filename or "").strip()
     if not filename.lower().endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Please upload a CSV file.")
+        _raise_api_error(400, "Please upload a CSV file.", error_code="INVALID_FILE_TYPE")
 
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     dst = UPLOAD_DIR / filename
@@ -1507,8 +1554,9 @@ async def upload_csv(
     try:
         with dst.open("wb") as f:
             shutil.copyfileobj(file.file, f)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
+    except Exception:
+        logger.exception("Failed to save uploaded CSV", extra={"filename": filename, "kind": "single"})
+        _raise_api_error(500, "Could not save the uploaded file. Please try again.", error_code="FILE_SAVE_FAILED")
 
     job_id = _create_upload_job(kind="single", filename=filename, test_id=test_id or "TEST")
     worker = threading.Thread(
@@ -1534,7 +1582,7 @@ async def upload_bulk_csv(
 ):
     filename = (file.filename or "").strip()
     if not filename.lower().endswith(".csv"):
-        raise HTTPException(status_code=400, detail="Please upload a CSV file")
+        _raise_api_error(400, "Please upload a CSV file.", error_code="INVALID_FILE_TYPE")
 
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     dst = UPLOAD_DIR / filename
@@ -1542,8 +1590,9 @@ async def upload_bulk_csv(
     try:
         with dst.open("wb") as f:
             shutil.copyfileobj(file.file, f)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
+    except Exception:
+        logger.exception("Failed to save uploaded CSV", extra={"filename": filename, "kind": "bulk"})
+        _raise_api_error(500, "Could not save the uploaded file. Please try again.", error_code="FILE_SAVE_FAILED")
 
     try:
         df = pd.read_csv(dst, low_memory=False)
@@ -1551,17 +1600,18 @@ async def upload_bulk_csv(
         if age_col:
             df[age_col] = pd.to_numeric(df[age_col], errors="coerce")
         validate_maptrack_df(df)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"CSV processing failed: {e}")
+    except Exception:
+        logger.exception("Bulk CSV validation failed", extra={"filename": filename, "test_id": test_id})
+        _raise_api_error(400, "Could not process the CSV file. Please check the format and required columns.", error_code="CSV_PROCESSING_FAILED")
 
     user_col = get_user_id_column(df)
     if not user_col:
-        raise HTTPException(status_code=400, detail="CSV does not contain the required column 'userid'.")
+        _raise_api_error(400, "CSV must include the required 'userid' column.", error_code="MISSING_USERID_COLUMN")
 
     df["_user_id_norm"] = df[user_col].apply(_normalize_user_id)
     df = df[df["_user_id_norm"].notna()]
     if df.empty:
-        raise HTTPException(status_code=400, detail="CSV does not contain any valid values in the 'userid' column.")
+        _raise_api_error(400, "CSV does not contain valid values in the 'userid' column.", error_code="INVALID_USERID_VALUES")
 
     soc_rows = _read_soc_demo_rows_by_user(df, "_user_id_norm")
     base_session_id = infer_session_id_from_filename(file.filename)
@@ -1982,7 +2032,7 @@ def api_list_tests():
 def api_create_test(payload: dict = Body(...)):
     test_id = str(payload.get("test_id", "")).strip()
     if not test_id:
-        raise HTTPException(status_code=400, detail="test_id is required")
+        _raise_api_error(400, "test_id is required.", error_code="MISSING_TEST_ID")
 
     name = payload.get("name")
     note = payload.get("note")
@@ -1991,7 +2041,8 @@ def api_create_test(payload: dict = Body(...)):
     except ValueError as e:
         msg = str(e)
         status = 409 if msg == "Test already exists" else 400
-        raise HTTPException(status_code=status, detail=msg)
+        error_code = "TEST_ALREADY_EXISTS" if status == 409 else "INVALID_TEST_INPUT"
+        _raise_api_error(status, msg, error_code=error_code)
 
     return {"test": created}
 
@@ -2006,7 +2057,8 @@ def api_update_test_settings(test_id: str, payload: dict = Body(...)):
     except ValueError as e:
         msg = str(e)
         status = 409 if msg == "Test already exists" else 400
-        raise HTTPException(status_code=status, detail=msg)
+        error_code = "TEST_ALREADY_EXISTS" if status == 409 else "INVALID_TEST_INPUT"
+        _raise_api_error(status, msg, error_code=error_code)
 
     return {
         "test_id": updated.get("id") or test_id,

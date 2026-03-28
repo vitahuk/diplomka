@@ -190,6 +190,30 @@ a {
   padding: 18px;
 }
 
+.app-message {
+  margin: 10px 18px 0;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.app-message--info {
+  background: rgba(106, 166, 255, .14);
+  border-color: rgba(106, 166, 255, .4);
+}
+
+.app-message--success {
+  background: rgba(139, 255, 207, .12);
+  border-color: rgba(139, 255, 207, .35);
+}
+
+.app-message--error {
+  background: rgba(255, 107, 107, .14);
+  border-color: rgba(255, 107, 107, .42);
+}
+
 h1 {
   margin: 0;
   font-size: 22px;

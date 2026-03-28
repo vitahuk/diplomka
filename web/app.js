@@ -315,6 +315,75 @@ function loadGroupDraftSelectionForTest(testId) {
 
 // ===== API =====
 
+let appMessageTimer = null;
+
+function showAppMessage({ type = "info", text = "", timeoutMs = 5500 } = {}) {
+  const el = $("#appMessage");
+  if (!el || !text) return;
+
+  el.textContent = text;
+  el.classList.remove("hidden", "app-message--info", "app-message--success", "app-message--error");
+  el.classList.add(`app-message--${type}`);
+
+  if (appMessageTimer) clearTimeout(appMessageTimer);
+  if (timeoutMs > 0) {
+    appMessageTimer = window.setTimeout(() => {
+      el.classList.add("hidden");
+      el.textContent = "";
+      el.classList.remove("app-message--info", "app-message--success", "app-message--error");
+    }, timeoutMs);
+  }
+}
+
+function setStatusMessage(statusEl, text, type = "info") {
+  if (statusEl) statusEl.textContent = text;
+  if (type === "error") {
+    showAppMessage({ type: "error", text, timeoutMs: 7000 });
+  }
+}
+
+function normalizeErrorDetail(errDetail) {
+  if (typeof errDetail === "string") {
+    return { message: errDetail, errorCode: null };
+  }
+  if (errDetail && typeof errDetail === "object") {
+    return {
+      message: errDetail.message ?? errDetail.detail ?? null,
+      errorCode: errDetail.error_code ?? null,
+    };
+  }
+  return { message: null, errorCode: null };
+}
+
+function getFriendlyErrorMessage({ status, errorCode, fallbackMessage }) {
+  const byCode = {
+    INVALID_FILE_TYPE: "Please upload a CSV file.",
+    FILE_SAVE_FAILED: "Could not save the uploaded file. Please try again.",
+    CSV_PROCESSING_FAILED: "Could not process the CSV file. Please check the format and required columns.",
+    MISSING_USERID_COLUMN: "CSV must include the required 'userid' column.",
+    INVALID_USERID_VALUES: "CSV does not contain valid values in the 'userid' column.",
+    TEST_ALREADY_EXISTS: "A user experiment with this ID already exists.",
+    MISSING_TEST_ID: "Please enter a user experiment ID.",
+  };
+
+  if (errorCode && byCode[errorCode]) return byCode[errorCode];
+
+  const byStatus = {
+    400: "The request is invalid. Please check the input and try again.",
+    401: "Your session has expired. Please log in again.",
+    403: "You do not have permission to do this action.",
+    404: "The requested data was not found.",
+    409: "This action conflicts with existing data.",
+    500: "Unexpected server error. Please try again in a moment.",
+  };
+
+  if (fallbackMessage && typeof fallbackMessage === "string" && fallbackMessage.trim()) {
+    return fallbackMessage.trim();
+  }
+
+  return byStatus[status] ?? "Something went wrong. Please try again.";
+}
+
 function redirectToLogin() {
   if (window.location.pathname !== "/login") {
     window.location.assign("/login");
@@ -324,7 +393,13 @@ function redirectToLogin() {
 async function parseApiError(res) {
   let err = {};
   try { err = await res.json(); } catch { }
-  return err?.detail ?? res.statusText;
+  
+  const normalized = normalizeErrorDetail(err?.detail);
+  return getFriendlyErrorMessage({
+    status: res.status,
+    errorCode: normalized.errorCode,
+    fallbackMessage: normalized.message ?? (typeof err?.detail === "string" ? err.detail : null),
+  });
 }
 
 async function apiFetch(path, options = {}) {
@@ -1500,7 +1575,7 @@ async function confirmDeleteSettingsSessions() {
     state.settingsSessionSelection = [];
     if (statusEl) statusEl.textContent = `Deleted: ${target.count} sessions.`;
   } catch (e) {
-    if (statusEl) statusEl.textContent = `Error deleting: ${e?.message ?? e}`;
+    setStatusMessage(statusEl, `Error deleting: ${e?.message ?? e}`, "error");
   } finally {
     closeSettingsDeleteConfirmModal();
   }
@@ -1551,7 +1626,7 @@ async function saveUserTestSettings() {
         : `Saved. Experiment ID changed to: ${updatedTestId}`;
     }
   } catch (e) {
-    if (statusEl) statusEl.textContent = `Error saving: ${e?.message ?? e}`;
+    setStatusMessage(statusEl, `Error saving: ${e?.message ?? e}`, "error");
   }
 }
 
@@ -2390,7 +2465,7 @@ function renderTaskSpatialTraceToMap(spatialPayload) {
     const bounds = layer?.feature?.properties?.viewportBounds;
     const labelParts = [];
     if (Number.isFinite(Number(ts))) labelParts.push(`t=${Number(ts)}`);
-    if (Number.isFinite(Number(zoom))) labelParts.push(`z=${Number(zoom)}`);
+    if (Number.isFinite(Number(zoom)) && Number(zoom) > 0) labelParts.push(`z=${Number(zoom)}`);
     const baseLabel = labelParts.join(" · ") || "Trajectory point";
     layer.bindTooltip(`${kind} · ${baseLabel}`, { direction: "top", offset: [0, -8] });
 
@@ -2416,7 +2491,7 @@ function renderTaskSpatialTraceToMap(spatialPayload) {
     const zoom = layer?.feature?.properties?.zoom;
     const labelParts = [];
     if (Number.isFinite(Number(ts))) labelParts.push(`t=${Number(ts)}`);
-    if (Number.isFinite(Number(zoom))) labelParts.push(`z=${Number(zoom)}`);
+    if (Number.isFinite(Number(zoom)) && Number(zoom) > 0) labelParts.push(`z=${Number(zoom)}`);
     layer.bindTooltip(labelParts.join(" · ") || "Trajectory point", { direction: "top", offset: [0, -8] });
 
     const rect = makeViewportRectangle(bounds);
@@ -3162,7 +3237,7 @@ async function exportTimelineCsvForSelectedSession() {
     const blob = await res.blob();
     downloadCsvResponseBlob(blob, res, `gazeplotter_timeline_${s.session_id}.csv`);
   } catch (e) {
-    window.alert(`Export failed: ${e?.message ?? e}`);
+    showAppMessage({ type: "error", text: `Export failed: ${e?.message ?? e}` });
   } finally {
     if (btn) {
       btn.disabled = false;
@@ -3191,7 +3266,7 @@ async function exportGazeplotterForCurrentTestSessions() {
     const blob = await res.blob();
     downloadCsvResponseBlob(blob, res, `test_${testId}_all_sessions_gazeplotter_export.csv`);
   } catch (e) {
-    window.alert(`Export failed: ${e?.message ?? e}`);
+    showAppMessage({ type: "error", text: `Export failed: ${e?.message ?? e}` });
   } finally {
     if (btn) {
       btn.disabled = false;
@@ -3203,7 +3278,7 @@ async function exportGazeplotterForCurrentTestSessions() {
 async function exportGazeplotterForCurrentGroupSessions() {
   const group = getSelectedGroup();
   if (!group?.id) {
-    window.alert("Please select a group first.");
+    showAppMessage({ type: "error", text: "Please select a group first." });
     return;
   }
 
@@ -3225,7 +3300,7 @@ async function exportGazeplotterForCurrentGroupSessions() {
     const blob = await res.blob();
     downloadCsvResponseBlob(blob, res, `group_${group.id}_gazeplotter_export.csv`);
   } catch (e) {
-    window.alert(`Export failed: ${e?.message ?? e}`);
+    showAppMessage({ type: "error", text: `Export failed: ${e?.message ?? e}` });
   } finally {
     if (btn) {
       btn.disabled = false;
@@ -3254,7 +3329,7 @@ async function exportSpatialForCurrentTestSessions() {
     const blob = await res.blob();
     downloadCsvResponseBlob(blob, res, `test_${testId}_spatial_data.zip`);
   } catch (e) {
-    window.alert(`Export failed: ${e?.message ?? e}`);
+    showAppMessage({ type: "error", text: `Export failed: ${e?.message ?? e}` });
   } finally {
     if (btn) {
       btn.disabled = false;
@@ -3266,7 +3341,7 @@ async function exportSpatialForCurrentTestSessions() {
 async function exportSpatialForCurrentGroupSessions() {
   const group = getSelectedGroup();
   if (!group?.id) {
-    window.alert("Please select a group first.");
+    showAppMessage({ type: "error", text: "Please select a group first." });
     return;
   }
 
@@ -3288,7 +3363,7 @@ async function exportSpatialForCurrentGroupSessions() {
     const blob = await res.blob();
     downloadCsvResponseBlob(blob, res, `group_${group.id}_spatial_data.zip`);
   } catch (e) {
-    window.alert(`Export failed: ${e?.message ?? e}`);
+    showAppMessage({ type: "error", text: `Export failed: ${e?.message ?? e}` });
   } finally {
     if (btn) {
       btn.disabled = false;
@@ -3654,7 +3729,7 @@ function renderSpatialTraceToMap(spatialPayload) {
     const bounds = layer?.feature?.properties?.viewportBounds;
     const labelParts = [];
     if (Number.isFinite(Number(ts))) labelParts.push(`t=${Number(ts)}`);
-    if (Number.isFinite(Number(zoom))) labelParts.push(`z=${Number(zoom)}`);
+    if (Number.isFinite(Number(zoom)) && Number(zoom) > 0) labelParts.push(`z=${Number(zoom)}`);
     const baseLabel = labelParts.join(" · ") || "Trajectory point";
     layer.bindTooltip(`${kind} · ${baseLabel}`, { direction: "top", offset: [0, -8] });
 
@@ -3680,7 +3755,7 @@ function renderSpatialTraceToMap(spatialPayload) {
     const zoom = layer?.feature?.properties?.zoom;
     const labelParts = [];
     if (Number.isFinite(Number(ts))) labelParts.push(`t=${Number(ts)}`);
-    if (Number.isFinite(Number(zoom))) labelParts.push(`z=${Number(zoom)}`);
+    if (Number.isFinite(Number(zoom)) && Number(zoom) > 0) labelParts.push(`z=${Number(zoom)}`);
     layer.bindTooltip(labelParts.join(" · ") || "Trajectory point", { direction: "top", offset: [0, -8] });
 
     const rect = makeViewportRectangle(bounds);
@@ -3951,7 +4026,7 @@ function exportCurrentSessionMapGeoJson(kind) {
   const experimentName = payload?.user_experiment ?? getCurrentTestDisplayName() ?? "user_experiment";
   const fileNameBase = `${experimentName}_session ${sessionId}`;
   if (!payload) {
-    window.alert("No map data is loaded yet.");
+    showAppMessage({ type: "error", text: "No map data is loaded yet." });
     return;
   }
 
@@ -3978,7 +4053,7 @@ function exportCurrentSessionMapGeoJson(kind) {
 
   const geojson = selected.build(payload);
   if (!Array.isArray(geojson?.features) || !geojson.features.length) {
-    window.alert(selected.emptyMessage);
+    showAppMessage({ type: "error", text: selected.emptyMessage });
     return;
   }
 
@@ -5366,7 +5441,7 @@ async function saveCreatedGroup() {
     renderGroupsPage();
     closeCreateGroupModal();
   } catch (e) {
-    if (statusEl) statusEl.textContent = `Error: ${e?.message ?? e}`;
+    setStatusMessage(statusEl, `Error: ${e?.message ?? e}`, "error");
   }
 }
 
@@ -5679,7 +5754,7 @@ async function exportCurrentGroupCsv() {
 
     if (statusEl) statusEl.textContent = `CSV export complete (${filename}).`;
   } catch (e) {
-    if (statusEl) statusEl.textContent = `CSV export failed: ${e.message}`;
+    setStatusMessage(statusEl, `CSV export failed: ${e.message}`, "error");
   }
 }
 
@@ -5718,7 +5793,7 @@ async function createGroupFromEditSelection() {
     closeGroupSplitModal();
     renderGroupsPage();
   } catch (e) {
-    if (statusEl) statusEl.textContent = `Error: ${e?.message ?? e}`;
+    setStatusMessage(statusEl, `Error: ${e?.message ?? e}`, "error");
   }
 }
 
@@ -5741,7 +5816,7 @@ async function deleteFlaggedFromGroup() {
     renderGroupEditSessionsList();
     if (statusEl) statusEl.textContent = "Removed from group.";
   } catch (e) {
-    if (statusEl) statusEl.textContent = `Error: ${e?.message ?? e}`;
+    setStatusMessage(statusEl, `Error: ${e?.message ?? e}`, "error");
   }
 }
 
@@ -5865,7 +5940,7 @@ async function saveGroupEdit() {
     renderGroupsPage();
     closeGroupEditModal();
   } catch (e) {
-    if (statusEl) statusEl.textContent = `Error: ${e?.message ?? e}`;
+    setStatusMessage(statusEl, `Error: ${e?.message ?? e}`, "error");
   }
 }
 
@@ -5882,7 +5957,7 @@ async function deleteCurrentGroup() {
     await refreshGroups();
     renderGroupsPage();
   } catch (e) {
-    if (statusEl) statusEl.textContent = `Error: ${e?.message ?? e}`;
+    setStatusMessage(statusEl, `Error: ${e?.message ?? e}`, "error");
   }
 }
 
@@ -6006,7 +6081,7 @@ function selectTest(testId) {
   renderSelectedTestState();
   refreshSessions().catch((error) => {
     const statusEl = $("#uploadStatus");
-    if (statusEl) statusEl.textContent = `Backend unavailable: ${error?.message ?? error}`;
+    setStatusMessage(statusEl, `Backend unavailable: ${error?.message ?? error}`, "error");
   });
 }
 
@@ -6186,7 +6261,7 @@ function wireNavButtons() {
       }
       await apiLogout();
     } catch (error) {
-      window.alert(`Logout failed: ${error?.message ?? error}`);
+      showAppMessage({ type: "error", text: `Logout failed: ${error?.message ?? error}` });
       if (btn) {
         btn.disabled = false;
         btn.textContent = originalLabel || "Logout";
@@ -6301,7 +6376,7 @@ function wireTestControls() {
     } catch (e) {
       if (String(e?.message ?? "").toLowerCase().includes("already exists")) {
       } else {
-        window.alert(`Failed to create user experiment: ${e?.message ?? e}`);
+        showAppMessage({ type: "error", text: `Failed to create user experiment: ${e?.message ?? e}` });
         return;
       }
     }
@@ -6483,7 +6558,11 @@ async function pollUploadJob(jobId, {
     }
 
     if (job.status === "failed") {
-      throw new Error(job.error ?? job.message ?? "CSV processing failed.");
+      throw new Error(getFriendlyErrorMessage({
+        status: 400,
+        errorCode: job.error_code ?? null,
+        fallbackMessage: job.error ?? job.message ?? "CSV processing failed.",
+      }));
     }
 
     if (job.status === "completed") {
@@ -6550,7 +6629,7 @@ function wireUpload() {
       });
 
     } catch (ex) {
-      if (statusEl) statusEl.textContent = `Error: ${ex?.message ?? ex}`;
+      setStatusMessage(statusEl, `Error: ${ex?.message ?? ex}`, "error");
     } finally {
       input.value = "";
     }
@@ -6610,7 +6689,7 @@ function wireBulkUpload() {
         },
       });
     } catch (ex) {
-      if (statusEl) statusEl.textContent = `Error: ${ex?.message ?? ex}`;
+      setStatusMessage(statusEl, `Error: ${ex?.message ?? ex}`, "error");
     } finally {
       input.value = "";
     }
@@ -6754,7 +6833,7 @@ async function init() {
     await loadTestsCatalogFromBackend();
   } catch (e) {
     const statusEl = $("#uploadStatus");
-    if (statusEl) statusEl.textContent = `Backend unavailable: ${e?.message ?? e}`;
+    setStatusMessage(statusEl, `Backend unavailable: ${e?.message ?? e}`, "error");
   }
 
   renderTestsList();
