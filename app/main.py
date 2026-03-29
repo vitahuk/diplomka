@@ -339,7 +339,7 @@ def _build_session_id_for_test_user(test_id: str, user_id: Any) -> str:
                 "Session identity now requires test_id + user_id."
             ),
         )
-    return f"{_sanitize_filename_component(normalized_test_id)}__{_sanitize_filename_component(normalized_user_id)}"
+    return f"S{_sanitize_filename_component(normalized_test_id)}__{_sanitize_filename_component(normalized_user_id)}"
 
 def _read_session_events_df(csv_path: Path) -> pd.DataFrame:
     usecols = ["timestamp", "event_name", "event_detail", "task"]
@@ -1947,7 +1947,8 @@ def api_export_test_answers_csv(test_id: str):
     for task_id in task_ids:
         writer.writerow([task_id, answers.get(task_id, "")])
 
-    filename = f"test_{test_id}_answers.csv"
+    test_name = _resolve_test_export_name(test_id)
+    filename = f"{_sanitize_filename_component(test_name)}_answers.csv"
     csv_payload = output.getvalue().encode("utf-8")
     headers = {
         "Content-Disposition": f'attachment; filename="{filename}"',
@@ -1966,7 +1967,8 @@ def api_export_test_answers_template_csv(test_id: str):
     for task_id in task_ids:
         writer.writerow([task_id, ""])
 
-    filename = f"test_{test_id}_answers_template.csv"
+    test_name = _resolve_test_export_name(test_id)
+    filename = f"{_sanitize_filename_component(test_name)}_answers_template.csv"
     csv_payload = output.getvalue().encode("utf-8")
     headers = {
         "Content-Disposition": f'attachment; filename="{filename}"',
@@ -2041,9 +2043,7 @@ def api_list_tests():
 
 @app.post("/api/tests")
 def api_create_test(payload: dict = Body(...)):
-    test_id = str(payload.get("test_id", "")).strip()
-    if not test_id:
-        _raise_api_error(400, "test_id is required.", error_code="MISSING_TEST_ID")
+    test_id = str(payload.get("test_id", "")).strip() or None
 
     name = payload.get("name")
     note = payload.get("note")

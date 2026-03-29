@@ -7,7 +7,7 @@ import json
 import os
 import threading
 
-from sqlalchemy import String, Text, create_engine, select, delete, update, event, inspect, text
+from sqlalchemy import String, Text, create_engine, select, delete, update, event, inspect, text, func, Integer, cast
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship, sessionmaker, selectinload
 from sqlalchemy.types import JSON
 from sqlalchemy.schema import ForeignKey
@@ -589,18 +589,22 @@ def list_tests() -> List[Dict[str, Optional[str]]]:
             for row in rows
         ]
 
-def create_test(test_id: str, name: Optional[str] = None, note: Optional[str] = None) -> Dict[str, Optional[str]]:
+def create_test(test_id: Optional[str] = None, name: Optional[str] = None, note: Optional[str] = None) -> Dict[str, Optional[str]]:
     normalized_test_id = str(test_id or "").strip()
-    if not normalized_test_id:
-        raise ValueError("test_id is required")
 
     normalized_name = str(name).strip() if name is not None else None
     normalized_note = str(note) if note is not None else None
 
     with SessionLocal() as db:
-        row = db.get(TestRecord, normalized_test_id)
-        if row:
-            raise ValueError("Test already exists")
+        if not normalized_test_id:
+            max_numeric_id = db.execute(
+                select(func.max(cast(TestRecord.id, Integer))).where(TestRecord.id.op("GLOB")("[0-9]*"))
+            ).scalar_one_or_none()
+            normalized_test_id = str((max_numeric_id or 0) + 1)
+        else:
+            row = db.get(TestRecord, normalized_test_id)
+            if row:
+                raise ValueError("Test already exists")
 
         row = TestRecord(
             id=normalized_test_id,
@@ -701,56 +705,12 @@ def update_test_settings(test_id: str, name: Optional[str], note: Optional[str])
     normalized_test_id = _normalize_test_id(test_id)
     normalized_name = str(name).strip() if name is not None else None
     normalized_note = str(note) if note is not None else None
-    target_test_id = normalized_name if normalized_name else normalized_test_id
 
     with SessionLocal() as db:
         _ensure_test(db, normalized_test_id)
         row = db.get(TestRecord, normalized_test_id)
         if not row:
             raise ValueError("Test not found")
-
-        if target_test_id != normalized_test_id:
-            existing_target = db.get(TestRecord, target_test_id)
-            if existing_target:
-                raise ValueError("Test already exists")
-
-            db.add(
-                TestRecord(
-                    id=target_test_id,
-                    name=normalized_name,
-                    note=normalized_note,
-                )
-            )
-            db.flush()
-
-            db.execute(
-                update(SessionRecord)
-                .where(SessionRecord.test_id == normalized_test_id)
-                .values(test_id=target_test_id)
-            )
-            db.execute(
-                update(TaskRecord)
-                .where(TaskRecord.test_id == normalized_test_id)
-                .values(test_id=target_test_id)
-            )
-            db.execute(
-                update(TestAnswerRecord)
-                .where(TestAnswerRecord.test_id == normalized_test_id)
-                .values(test_id=target_test_id)
-            )
-            db.execute(
-                update(GroupRecord)
-                .where(GroupRecord.test_id == normalized_test_id)
-                .values(test_id=target_test_id)
-            )
-
-            db.delete(row)
-            db.commit()
-            return {
-                "id": target_test_id,
-                "name": normalized_name,
-                "note": normalized_note,
-            }
 
         row.name = normalized_name if normalized_name else None
         row.note = normalized_note

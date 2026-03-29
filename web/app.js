@@ -2,8 +2,19 @@
 const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
-function show(el) { el?.classList.remove("hidden"); }
-function hide(el) { el?.classList.add("hidden"); }
+function syncBodyModalScrollLock() {
+  const hasOpenModal = $$(".modal:not(.hidden)").length > 0;
+  document.body.classList.toggle("modal-open", hasOpenModal);
+}
+
+function show(el) {
+  el?.classList.remove("hidden");
+  if (el?.classList?.contains("modal")) syncBodyModalScrollLock();
+}
+function hide(el) {
+  el?.classList.add("hidden");
+  if (el?.classList?.contains("modal")) syncBodyModalScrollLock();
+}
 
 function setPage(pageId) {
   hide($("#view-dashboard"));
@@ -1151,7 +1162,6 @@ function renderSessionsList() {
           <input type="checkbox" data-role="group-select" data-session="${escapeHtml(s.session_id)}" ${checked} />
           <div>
             <div class="title">${escapeHtml(s.user_id ?? "—")}</div>
-            <div class="muted small">session: ${escapeHtml(s.session_id)}</div>
           </div>
         </div>
       </div>
@@ -1547,7 +1557,7 @@ function renderSettingsSessionsTab() {
           <input type="checkbox" data-role="settings-session" data-session="${escapeHtml(s.session_id)}" ${checked} />
           <div>
             <div class="title">${escapeHtml(s.user_id ?? "—")}</div>
-            <div class="muted small">session: ${escapeHtml(s.session_id)} · task: ${escapeHtml((s.tasks && s.tasks[0]) || s.task || "—")}</div>
+            <div class="muted small">task: ${escapeHtml((s.tasks && s.tasks[0]) || s.task || "—")}</div>
           </div>
         </div>
       </label>
@@ -2302,7 +2312,12 @@ function closeIntervalRatiosModal() {
 
 function renderTasksList() {
   const listEl = $("#tasksList");
+  const subtitleEl = $("#tasksInSessionSubtitle");
   if (!listEl) return;
+
+  if (subtitleEl) {
+    subtitleEl.textContent = `UserID: ${state.selectedSession?.user_id ?? "—"}`;
+  }
 
   if (!state.selectedSession) {
     listEl.innerHTML = `
@@ -2324,7 +2339,6 @@ function renderTasksList() {
         <div class="title">${escapeHtml(t)}</div>
         <span class="pill">task</span>
       </div>
-      <div class="muted small">Click for metrics (pop-up).</div>
     </div>
   `).join("");
 
@@ -2711,6 +2725,9 @@ function renderTaskModalTabs() {
   $$("#taskMetricsModal [data-panel]").forEach((panel) => {
     panel.classList.toggle("hidden", panel.dataset.panel !== state.taskModalTab);
   });
+
+  const taskModalCard = $("#taskMetricsModalCard");
+  taskModalCard?.classList.toggle("task-modal-card-map", state.taskModalTab === "map");
 
   if (state.taskModalTab === "map" && state.taskMap.leafletMap) {
     setTimeout(() => {
@@ -5749,7 +5766,25 @@ function renderGroupEditSessionMetrics() {
     const metric = mapping[key];
     if (metric) rows[metric[0]] = metric[1];
   }
-  renderMetricGrid(rows, el);
+  const rowsHtml = Object.entries(rows).map(([k, v]) => `
+    <div class="metric">
+      <div class="k">${escapeHtml(k)}</div>
+      <div class="v">${escapeHtml(v ?? "—")}</div>
+    </div>
+  `).join("");
+  el.innerHTML = `
+    <div class="metric-grid">${rowsHtml}</div>
+    <div class="group-edit-session-detail-action">
+      <button class="btn" type="button" id="groupEditSessionDetailBtn">Session detail</button>
+    </div>
+  `;
+  $("#groupEditSessionDetailBtn")?.addEventListener("click", async () => {
+    await navigateToRoute({
+      name: ROUTE_NAMES.SESSION_DETAIL,
+      testId: state.selectedTestId,
+      sessionId: selected.session_id,
+    });
+  });
 }
 
 function renderGroupEditSessionsList() {
@@ -5786,7 +5821,6 @@ function renderGroupEditSessionsList() {
             <input type="checkbox" data-role="group-edit-session" data-session="${escapeHtml(s.session_id)}" ${checked} />
             <div>
               <div class="title">${escapeHtml(s.user_id ?? "—")}</div>
-              <div class="muted small">session: ${escapeHtml(s.session_id)}</div>
             </div>
           </label>
           <button class="btn btn-ghost group-edit-flag ${flagged}" aria-pressed="${flaggedSet.has(s.session_id) ? "true" : "false"}" data-role="group-edit-flag" data-session="${escapeHtml(s.session_id)}" type="button" title="Flag">!</button>
@@ -6144,9 +6178,7 @@ async function deleteCurrentGroup() {
 // ===== Selection + Breadcrumbs =====
 function getBreadcrumbState() {
   const currentPage = state.currentPage ?? "dashboard";
-  const detailSessionLabel = state.selectedSession?.user_id
-    ? `${state.selectedSession.user_id} (${state.selectedSessionId ?? "—"})`
-    : (state.selectedSessionId ?? null);
+  const detailSessionLabel = state.selectedSession?.user_id ?? (state.selectedSessionId ?? null);
   const detailGroupLabel = getSelectedGroup()?.name ?? state.selectedGroupId ?? null;
 
   const breadcrumb = {
@@ -6536,11 +6568,17 @@ function wireNavButtons() {
 function wireTestControls() {
   $("#addTestBtn")?.addEventListener("click", async () => {
     const raw = window.prompt("Enter the name of the new user experiment:");
-    const testId = normalizeTestId(raw);
-    if (!testId) return;
+    const name = String(raw ?? "").trim();
+    if (!name) return;
 
     try {
-      await apiCreateTest({ test_id: testId });
+      const created = await apiCreateTest({ name });
+      const newTestId = normalizeTestId(created?.test?.id);
+      if (!newTestId) return;
+
+      await loadTestsCatalogFromBackend();
+      renderTestsList();
+      selectTest(newTestId);
     } catch (e) {
       if (String(e?.message ?? "").toLowerCase().includes("already exists")) {
       } else {
@@ -6548,11 +6586,6 @@ function wireTestControls() {
         return;
       }
     }
-
-    await loadTestsCatalogFromBackend();
-    renderTestsList();
-
-    selectTest(testId);
   });
 }
 

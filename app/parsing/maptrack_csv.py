@@ -343,25 +343,6 @@ def build_spatial_trace_for_user(
     normalized_task = None if task_id is None else str(task_id).strip()
     if uid_col and normalized_user:
         data = data[data[uid_col].astype(str).str.strip() == normalized_user]
-    
-    if normalized_task:
-        if "task" in data.columns:
-            data = data[data["task"].astype(str).str.strip() == normalized_task]
-        else:
-            current_task: Optional[str] = None
-            inferred_tasks: List[Optional[str]] = []
-            for _, row in data.iterrows():
-                event_name = str(row.get("event_name", "")).strip()
-                raw_detail = row.get("event_detail")
-                if event_name == "setting task":
-                    parsed = parse_event_detail(event_name, raw_detail)
-                    inferred = parsed.get("task_id")
-                    if isinstance(inferred, str) and inferred.strip():
-                        current_task = inferred.strip()
-                inferred_tasks.append(current_task)
-            data = data.copy()
-            data["_task_id_inferred"] = inferred_tasks
-            data = data[data["_task_id_inferred"].astype(str).str.strip() == normalized_task]
 
     data = data.copy()
     data["_timestamp"] = pd.to_numeric(data["timestamp"], errors="coerce")
@@ -393,12 +374,20 @@ def build_spatial_trace_for_user(
     current_orientation: Optional[str] = None
     orientation_driven_by_events = False
 
+    def _matches_selected_task(row_task: Optional[str]) -> bool:
+        if not normalized_task:
+            return True
+        if not isinstance(row_task, str):
+            return False
+        return row_task.strip() == normalized_task
+
     for _, row in data.iterrows():
         event_name = str(row.get("event_name", "")).strip()
         event_name_lower = event_name.lower()
         event_detail = row.get("event_detail")
         timestamp = int(row.get("_timestamp"))
         row_task, current_task = _resolve_row_task_id(row, current_task)
+        is_selected_task_row = _matches_selected_task(row_task)
         row_orientation = _normalize_orientation(row.get("orientation"))
         if not orientation_driven_by_events and row_orientation is not None:
             current_orientation = row_orientation
@@ -430,7 +419,7 @@ def build_spatial_trace_for_user(
 
         coord = parse_coordinate_detail_if_allowed(event_name, event_detail)
 
-        if event_name == "movestart" and coord is not None and first_movestart_point is None:
+        if event_name == "movestart" and coord is not None and first_movestart_point is None and is_selected_task_row:
             lat, lon = coord
             first_movestart_point = {
                 "lat": lat,
@@ -441,7 +430,7 @@ def build_spatial_trace_for_user(
             }
             continue
 
-        if event_name == "moveend" and coord is not None:
+        if event_name == "moveend" and coord is not None and is_selected_task_row:
             lat, lon = coord
             last_moveend_point = {"lat": lat, "lon": lon, "timestamp": timestamp, "task": row_task}
 
@@ -480,7 +469,7 @@ def build_spatial_trace_for_user(
             track_points.append([lat, lon])
             continue
 
-        if event_name == "popupopen" and coord is not None:
+        if event_name == "popupopen" and coord is not None and is_selected_task_row:
             lat, lon = coord
             popups.append({
                 "lat": lat,

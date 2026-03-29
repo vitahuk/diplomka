@@ -403,6 +403,12 @@ p {
 .list-item.is-selected {
   border-color: var(--accent);
   box-shadow: 0 0 0 4px rgba(106, 166, 255, .10);
+  border-color: rgba(106, 166, 255, .85);
+  box-shadow: 0 0 0 4px rgba(106, 166, 255, .18);
+}
+
+.list-item.is-selected .title {
+  font-weight: 800;
 }
 
 .row {
@@ -577,6 +583,11 @@ p {
   grid-column: 1 / -1;
 }
 
+.group-edit-session-detail-action {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .metric-note-box {
   max-height: 220px;
   overflow: auto;
@@ -611,6 +622,11 @@ p {
 }
 
 /* Modal */
+
+.modal-open {
+  overflow: hidden;
+}
+
 .modal.hidden {
   display: none !important;
 }
@@ -690,10 +706,12 @@ p {
 
 .groups-compare-modal {
   align-items: center;
+  padding: 12px;
 }
 
 .compare-modal-card {
-  max-height: min(86vh, 820px);
+  width: min(1600px, 98vw) !important;
+  max-height: calc(100vh - 24px);
 }
 
 .tab-row {
@@ -1030,6 +1048,11 @@ p {
   }
 }
 
+.task-modal-card.task-modal-card-map {
+  width: min(1400px, 96vw);
+  max-height: min(92vh, 980px);
+}
+
 .map-modal-card {
   width: min(1400px, 96vw);
   max-height: min(92vh, 980px);
@@ -1240,7 +1263,7 @@ p {
 
 .wordcloud-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px;
 }
 
@@ -1273,6 +1296,10 @@ p {
 }
 
 @media (max-width: 720px) {
+  .wordcloud-grid {
+    grid-template-columns: 1fr;
+  }
+
   .wordcloud-card-head {
     flex-direction: column;
   }
