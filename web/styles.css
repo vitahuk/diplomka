@@ -26,6 +26,11 @@ body {
   color: var(--text);
 }
 
+body.busy-cursor,
+body.busy-cursor * {
+  cursor: progress !important;
+}
+
 a {
   color: inherit;
 }
@@ -485,6 +490,11 @@ p {
   border-color: rgba(106, 166, 255, .65);
 }
 
+.btn-ghost.is-active {
+  border-color: rgba(106, 166, 255, .85);
+  background: rgba(106, 166, 255, .2);
+}
+
 .btn-danger {
   border-color: rgba(255, 107, 107, .65);
   background: rgba(255, 107, 107, .16);
@@ -747,6 +757,48 @@ p {
   background: var(--card);
   border-color: rgba(34, 48, 74, .85);
   border-bottom-color: var(--card);
+}
+
+#view-settings .settings-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+#view-settings .settings-answers-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  max-height: min(66vh, 620px);
+}
+
+#view-settings .settings-sessions-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+  max-height: min(66vh, 620px);
+}
+
+#settingsTasksList {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid rgba(34, 48, 74, .65);
+  border-radius: 12px;
+  background: rgba(7, 10, 20, .18);
+}
+
+#settingsSessionsList {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid rgba(34, 48, 74, .65);
+  border-radius: 12px;
+  background: rgba(7, 10, 20, .18);
 }
 
 .task-compare-layout {

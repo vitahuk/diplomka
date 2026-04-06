@@ -588,13 +588,26 @@ async function parseApiError(res) {
   });
 }
 
+let activeApiRequestCount = 0;
+
+function setBusyCursor(isBusy) {
+  document.body.classList.toggle("busy-cursor", isBusy);
+}
+
 async function apiFetch(path, options = {}) {
-  const res = await fetch(path, options);
-  if (res.status === 401) {
-    redirectToLogin();
-    throw new Error("Unauthorized");
+  activeApiRequestCount += 1;
+  setBusyCursor(true);
+  try {
+    const res = await fetch(path, options);
+    if (res.status === 401) {
+      redirectToLogin();
+      throw new Error("Unauthorized");
+    }
+    return res;
+  } finally {
+    activeApiRequestCount = Math.max(0, activeApiRequestCount - 1);
+    setBusyCursor(activeApiRequestCount > 0);
   }
-  return res;
 }
 
 async function apiGet(path) {
@@ -1382,8 +1395,13 @@ async function loadTestsCatalogFromBackend() {
 
 function getCurrentTestDisplayName() {
   const testId = state.selectedTestId ?? "TEST";
-  const saved = state.testSettings?.[testId]?.name;
-  return String(saved ?? "").trim() || testId;
+  return getTestDisplayName(testId);
+}
+
+function getTestDisplayName(testId) {
+  const normalizedTestId = normalizeTestId(testId) ?? "TEST";
+  const saved = state.testSettings?.[normalizedTestId]?.name;
+  return String(saved ?? "").trim() || normalizedTestId;
 }
 
 function getCorrectAnswerLocal(testId, taskId) {
@@ -5665,8 +5683,8 @@ function renderGroupEditFilterControls(sessions) {
   const ageMinEl = $("#groupEditFilterAgeMin");
   const ageMaxEl = $("#groupEditFilterAgeMax");
   const searchEl = $("#groupEditSearchInput");
-  const onlyFlaggedEl = $("#groupEditOnlyFlagged");
-  if (!genderEl || !occupationEl || !nationalityEl || !ageMinEl || !ageMaxEl || !searchEl || !onlyFlaggedEl) return;
+  const onlyFlaggedBtn = $("#groupEditOnlyFlaggedBtn");
+  if (!genderEl || !occupationEl || !nationalityEl || !ageMinEl || !ageMaxEl || !searchEl || !onlyFlaggedBtn) return;
 
   const options = getSessionFilterOptions(sessions);
   const makeOptions = (values, emptyLabel) => {
@@ -5684,7 +5702,8 @@ function renderGroupEditFilterControls(sessions) {
   ageMinEl.value = state.groupEditFilters.ageMin;
   ageMaxEl.value = state.groupEditFilters.ageMax;
   searchEl.value = state.groupEditFilters.query;
-  onlyFlaggedEl.checked = !!state.groupEditShowOnlyFlagged;
+  onlyFlaggedBtn.setAttribute("aria-pressed", state.groupEditShowOnlyFlagged ? "true" : "false");
+  onlyFlaggedBtn.classList.toggle("is-active", !!state.groupEditShowOnlyFlagged);
 }
 
 const SESSION_METRIC_OPTIONS = [
@@ -5863,9 +5882,9 @@ function renderGroupEditSessionsList() {
 function wireGroupEditFilters() {
   const ids = ["#groupEditFilterGender", "#groupEditFilterOccupation", "#groupEditFilterNationality", "#groupEditFilterAgeMin", "#groupEditFilterAgeMax", "#groupEditSearchInput"];
   const selectAllBtn = $("#groupEditSelectAllBtn");
+  const clearSelectionBtn = $("#groupEditClearSelectionBtn");
   const clearBtn = $("#groupEditClearFiltersBtn");
-
-  const onlyFlagged = $("#groupEditOnlyFlagged");
+  const onlyFlaggedBtn = $("#groupEditOnlyFlaggedBtn");
 
   const update = () => {
     state.groupEditFilters.gender = $("#groupEditFilterGender")?.value ?? "";
@@ -5874,17 +5893,24 @@ function wireGroupEditFilters() {
     state.groupEditFilters.ageMin = $("#groupEditFilterAgeMin")?.value ?? "";
     state.groupEditFilters.ageMax = $("#groupEditFilterAgeMax")?.value ?? "";
     state.groupEditFilters.query = $("#groupEditSearchInput")?.value ?? "";
-    state.groupEditShowOnlyFlagged = !!onlyFlagged?.checked;
     renderGroupEditSessionsList();
   };
 
   ids.forEach((sel) => $(sel)?.addEventListener(sel.includes("Age") || sel.includes("Search") ? "input" : "change", update));
-  onlyFlagged?.addEventListener("change", update);
+  onlyFlaggedBtn?.addEventListener("click", () => {
+    state.groupEditShowOnlyFlagged = !state.groupEditShowOnlyFlagged;
+    renderGroupEditSessionsList();
+  });
 
   selectAllBtn?.addEventListener("click", () => {
     const set = new Set(state.groupEditSessionIds ?? []);
     getGroupEditFilteredSessions().forEach((s) => set.add(s.session_id));
     state.groupEditSessionIds = Array.from(set);
+    renderGroupEditSessionsList();
+  });
+
+  clearSelectionBtn?.addEventListener("click", () => {
+    state.groupEditSessionIds = [];
     renderGroupEditSessionsList();
   });
 
@@ -6700,7 +6726,7 @@ function openUploadTestModal(kind) {
   if (!modal || !select) return;
 
   select.innerHTML = state.tests.map((testId) => `
-    <option value="${escapeHtml(testId)}">${escapeHtml(testId)}</option>
+    <option value="${escapeHtml(testId)}">${escapeHtml(getTestDisplayName(testId))}</option>
   `).join("");
 
   select.value = state.selectedTestId ?? state.tests[0] ?? "TEST";

@@ -5,7 +5,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Mishpink data explorer</title>
-  <link rel="stylesheet" href="/static/styles.css?v=49" />
+  <link rel="stylesheet" href="/static/styles.css" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
 </head>
@@ -117,18 +117,18 @@
             </p>
           </div>
           <div class="page-actions">
-            <button class="btn btn-ghost" id="backFromSettingsBtn" type="button">← Zpět</button>
+            <button class="btn btn-ghost" id="backFromSettingsBtn" type="button">← Back to dashboard</button>
           </div>
         </div>
 
-        <section class="card">
+        <section class="card settings-card">
           <div class="tab-row" id="settingsTabs" role="tablist" aria-label="Nastavení testu">
             <button class="tab-btn is-active" type="button" role="tab" data-tab="answers" aria-selected="true">Correct answers</button>
             <button class="tab-btn" type="button" role="tab" data-tab="sessions" aria-selected="false">Edit uploaded sessions</button>
             <button class="tab-btn" type="button" role="tab" data-tab="user-test" aria-selected="false">User experiment settings</button>
           </div>
 
-          <section class="tab-panel" data-panel="answers">
+          <section class="tab-panel settings-answers-panel" data-panel="answers">
             <div class="card-head">
               <h2>Correct answers</h2>
               <div class="muted small">
@@ -155,7 +155,7 @@
             <input id="settingsAnswersCsvInput" type="file" accept=".csv" hidden />
           </section>
 
-          <section class="tab-panel hidden" data-panel="sessions">
+          <section class="tab-panel hidden settings-sessions-panel" data-panel="sessions">
             <div class="card-head">
               <h2>Edit uploaded sessions</h2>
               <div class="muted small">Select sessions you want to delete from the database.</div>
@@ -372,7 +372,7 @@
             <div class="stack">
               <div class="placeholder-box hidden" id="groupUsersPanel">
                 <div class="row" style="justify-content:space-between; align-items:center; margin-bottom:10px;">
-                  <button class="btn btn-ghost" id="openGroupMovementRatiosBtn" type="button">Group movement ratios</button>
+                  <button class="btn btn" id="openGroupMovementRatiosBtn" type="button">Group movement ratios</button>
                 </div>
                 <div class="muted small">Open aggregated MOVE / ZOOM / POPUP ratios for the whole group.</div>
               </div>
@@ -426,8 +426,9 @@
                   <label class="filter-field"><span>Nationality</span><select id="groupEditFilterNationality"></select></label>
                 </div>
                 <div class="filter-actions">
-                  <label class="row" style="gap:6px;"><input id="groupEditOnlyFlagged" type="checkbox" />Only flagged !</label>
+                  <button class="btn btn-ghost" id="groupEditOnlyFlaggedBtn" type="button" aria-pressed="false">Only flagged !</button>
                   <button class="btn btn-ghost" id="groupEditSelectAllBtn" type="button">Select all</button>
+                  <button class="btn btn-ghost" id="groupEditClearSelectionBtn" type="button">Clear selection</button>
                   <button class="btn btn-ghost" id="groupEditClearFiltersBtn" type="button">Clear filter</button>
                   <div class="muted small" id="groupEditSummary"></div>
                 </div>
@@ -1012,7 +1013,7 @@
 
   <footer class="app-footer" aria-label="Footer">
     <div class="app-footer-content">
-      <p>Mishpink data explorer, version 1.0 (April 2026)</p>
+      <p>Mishpink data explorer, version 1.2 (April 2026)</p>
       <p>Coded & Designed by Vítězslav Huk, idea by Lukáš Herman</p>
       <a href="https://geogr.sci.muni.cz" target="_blank" rel="noopener noreferrer">Department of Geography, Masaryk University</a>
       <img src="/static/sci-gu-lg-eng-white-01.png" alt="Dep. of Geography Logo" class="app-footer-logo" />
@@ -1021,7 +1022,7 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  <script src="/static/app.js?v=67"></script>
+  <script src="/static/app.js"></script>
 </body>
 
 </html>

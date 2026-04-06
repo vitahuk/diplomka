@@ -636,6 +636,8 @@ def _build_gazeplotter_segments_for_session(session: SessionData) -> List[Dict[s
 
         if to_ts < from_ts or from_ts < 0:
             continue
+        if to_ts == from_ts:
+            to_ts += 1
 
         segment = {
             "From": from_ts,
