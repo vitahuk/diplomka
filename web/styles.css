@@ -2020,3 +2020,42 @@ p {
   display: block;
   opacity: .95;
 }
+
+/* Global viewport scaling for smaller laptop screens */
+@media (max-width: 1400px) {
+  html,
+  body {
+    overflow-x: hidden;
+  }
+
+  body {
+    zoom: 0.92;
+  }
+}
+
+@media (max-width: 1200px) {
+  body {
+    zoom: 0.86;
+  }
+}
+
+/* Safari fallback (no CSS zoom support) */
+@supports not (zoom: 1) {
+  @media (max-width: 1400px) {
+    body {
+      transform: scale(0.92);
+      transform-origin: top left;
+      width: calc(100% / 0.92);
+      min-height: calc(100vh / 0.92);
+      overflow-x: hidden;
+    }
+  }
+
+  @media (max-width: 1200px) {
+    body {
+      transform: scale(0.86);
+      width: calc(100% / 0.86);
+      min-height: calc(100vh / 0.86);
+    }
+  }
+}
