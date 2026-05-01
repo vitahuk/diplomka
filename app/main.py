@@ -28,7 +28,6 @@ import zipfile
 import logging
 from typing import Any, Dict, Optional, List
 from uuid import uuid4
-from difflib import SequenceMatcher
 
 import csv
 import pandas as pd
@@ -1139,20 +1138,14 @@ def _extract_answers_by_task_from_df(df: pd.DataFrame) -> Dict[str, str]:
 # Correctness Evaluation
 # =========================
 
-def _similarity_score(a: str, b: str) -> float:
-    if not a or not b:
-        return 0.0
-    return SequenceMatcher(None, a, b).ratio() * 100.0
-
-
-def _evaluate_answer(correct_answer: str, user_answer: str, threshold: float = 85.0) -> tuple[bool, float]:
+def _evaluate_answer(correct_answer: str, user_answer: str) -> tuple[bool, float]:
     if not correct_answer or not user_answer:
         return False, 0.0
 
     norm_correct = _normalize_text(correct_answer)
     norm_user = _normalize_text(user_answer)
-    score = _similarity_score(norm_correct, norm_user)
-    return score >= threshold, score
+    is_match = norm_correct == norm_user
+    return is_match, (100.0 if is_match else 0.0)
 
 
 def _build_answers_eval_for_session(
