@@ -991,6 +991,15 @@ def _compute_interval_event_ratios(
     timeline_items: List[Dict[str, Any]],
     task_metrics: Dict[str, Dict[str, Any]],
 ) -> Dict[str, Any]:
+    session_duration_ms = 0
+    for item in timeline_items:
+        if item.get("type") == "interval":
+            end_ts = int(item.get("endTs", item.get("startTs", 0)))
+            session_duration_ms = max(session_duration_ms, end_ts)
+        else:
+            ts = int(item.get("ts", 0))
+            session_duration_ms = max(session_duration_ms, ts)
+
     by_task_durations: Dict[str, Dict[str, int]] = {
         str(task_id): _empty_interval_duration_bucket()
         for task_id in task_metrics.keys()
@@ -1018,14 +1027,12 @@ def _compute_interval_event_ratios(
         by_task_durations[task_id][event_key] += duration_ms
 
     by_task: Dict[str, Any] = {}
-    total_task_duration_ms = 0
     all_tasks_durations = _empty_interval_duration_bucket()
 
     for task_id, metrics in task_metrics.items():
         task_id_str = str(task_id)
         task_duration_ms = metrics.get("duration_ms")
         task_duration_int = int(task_duration_ms) if isinstance(task_duration_ms, int) else 0
-        total_task_duration_ms += max(0, task_duration_int)
 
         event_rows: Dict[str, Any] = {}
         durations = by_task_durations.get(task_id_str, _empty_interval_duration_bucket())
@@ -1045,7 +1052,7 @@ def _compute_interval_event_ratios(
 
     all_tasks_events: Dict[str, Any] = {}
     for event_key, duration_ms in all_tasks_durations.items():
-        ratio = (duration_ms / total_task_duration_ms) if total_task_duration_ms > 0 else None
+        ratio = (duration_ms / session_duration_ms) if session_duration_ms > 0 else None
         all_tasks_events[event_key] = {
             "duration_ms": duration_ms,
             "ratio": ratio,
@@ -1056,7 +1063,7 @@ def _compute_interval_event_ratios(
         "by_task": by_task,
         "all_tasks": {
             "task_id": "ALL_TASKS",
-            "task_duration_ms": total_task_duration_ms,
+            "task_duration_ms": session_duration_ms,
             "events": all_tasks_events,
         },
     })
